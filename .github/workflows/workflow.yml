@@ -18,17 +18,23 @@
 # All binaries are bundled - zero compilation required for end users.
 #
 # =============================================================================
-# REQUIRED SECRETS (configure in GitHub Settings > Secrets and variables > Actions):
+# REQUIRED SETUP:
 # =============================================================================
-#   CRATES_IO_TOKEN   - crates.io API token (https://crates.io/settings/tokens)
-#   NPM_TOKEN         - npm access token (https://www.npmjs.com/settings/~/tokens)
+# 
+# 1. Create GitHub Environment "toondb-workflow":
+#    Settings → Environments → New environment → Name: "toondb-workflow"
 #
-# PyPI: NO TOKEN REQUIRED! Uses Trusted Publisher (OIDC authentication)
-#   Already configured at: https://pypi.org/manage/project/toondb-client/settings/publishing/
-#   - Owner: toondb
-#   - Repository: toondb  
-#   - Workflow: workflow.yml
-#   - Environment: (Any)
+# 2. Add Environment Secrets (in the toondb-workflow environment):
+#    CRATES_IO_TOKEN   - crates.io API token (https://crates.io/settings/tokens)
+#    NPM_TOKEN         - npm access token (https://www.npmjs.com/settings/~/tokens)
+#
+# 3. GITHUB_TOKEN - NO ACTION NEEDED!
+#    Automatically provided by GitHub Actions. Do NOT add as a secret.
+#    Used for: Git operations, creating releases, Go module tagging
+#
+# 4. PyPI - NO TOKEN NEEDED!
+#    Already configured at: https://pypi.org/manage/project/toondb-client/settings/publishing/
+#    Uses OIDC Trusted Publisher (workflow.yml on toondb/toondb repository)
 # =============================================================================
 
 name: Release
@@ -254,6 +260,8 @@ jobs:
     name: Publish to npm
     runs-on: ubuntu-latest
     needs: build-npm
+    environment:
+      name: toondb-workflow
     steps:
       - name: Download npm package
         uses: actions/download-artifact@v4
@@ -449,6 +457,8 @@ jobs:
     name: Publish to crates.io
     runs-on: ubuntu-latest
     needs: validate
+    environment:
+      name: toondb-workflow
     steps:
       - uses: actions/checkout@v4
 
