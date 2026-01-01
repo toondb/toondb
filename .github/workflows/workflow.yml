@@ -429,7 +429,7 @@ jobs:
   publish-rust:
     name: Publish to crates.io
     runs-on: ubuntu-latest
-    needs: validate
+    needs: [build-binaries, build-npm, build-python, build-python-sdist]
     environment:
       name: toondb-workflow
     steps:
@@ -486,7 +486,7 @@ jobs:
   publish-go:
     name: Publish Go Module
     runs-on: ubuntu-latest
-    needs: validate
+    needs: [build-binaries, build-npm, build-python, build-python-sdist]
     steps:
       - uses: actions/checkout@v4
         with:
