@@ -36,5 +36,11 @@ export {
   ProtocolError,
   DatabaseError,
 } from './errors';
+export {
+  startEmbeddedServer,
+  stopEmbeddedServer,
+  stopAllEmbeddedServers,
+  isServerRunning,
+} from './server-manager';
 
-export const VERSION = '0.2.3';
+export const VERSION = '0.2.4';

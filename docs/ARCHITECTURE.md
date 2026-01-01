@@ -948,6 +948,94 @@ fn checkpoint(&self) -> Result<u64> {
 
 ---
 
+## SDK Architecture
+
+ToonDB provides official SDKs for multiple languages. All SDKs communicate with the ToonDB server via IPC (Unix domain sockets on Linux/macOS, named pipes on Windows).
+
+### Client-Server Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                         Client Applications                               │
+│  ┌─────────────┐  ┌─────────────────┐  ┌──────────────┐  ┌────────────┐ │
+│  │   Python    │  │   JavaScript    │  │      Go      │  │    Rust    │ │
+│  │  toondb-py  │  │  @sushanth/     │  │  toondb-go   │  │   toondb   │ │
+│  │             │  │     toondb      │  │              │  │   crate    │ │
+│  └──────┬──────┘  └───────┬─────────┘  └──────┬───────┘  └─────┬──────┘ │
+└─────────┼─────────────────┼────────────────────┼─────────────────┼───────┘
+          │                 │                    │                 │
+          └─────────────────┼────────────────────┼─────────────────┘
+                            │    IPC/Socket      │
+                            │   (toondb.sock)    │
+                            ▼                    ▼
+                    ┌──────────────────────────────────┐
+                    │         ToonDB Server            │
+                    │         (toondb-mcp)             │
+                    ├──────────────────────────────────┤
+                    │  ┌─────────────────────────────┐ │
+                    │  │      Protocol Handler       │ │
+                    │  │   (Wire Protocol Parser)    │ │
+                    │  └─────────────┬───────────────┘ │
+                    │                │                 │
+                    │  ┌─────────────▼───────────────┐ │
+                    │  │       Query Engine          │ │
+                    │  │    (toondb-query crate)     │ │
+                    │  └─────────────┬───────────────┘ │
+                    │                │                 │
+                    │  ┌─────────────▼───────────────┐ │
+                    │  │      Storage Engine         │ │
+                    │  │   (LSM + WAL + Memtable)    │ │
+                    │  └─────────────────────────────┘ │
+                    └──────────────────────────────────┘
+```
+
+### SDK Features Comparison
+
+| Feature               | Python    | JavaScript | Go         | Rust       |
+|-----------------------|-----------|------------|------------|------------|
+| Embedded Mode         | ✅ Auto   | ✅ Auto    | ❌ Manual  | ✅ Direct  |
+| IPC Client            | ✅        | ✅         | ✅         | ✅         |
+| Vector Search         | ✅        | ✅         | ✅         | ✅         |
+| Transactions          | ✅        | ✅         | ✅         | ✅         |
+| Query Builder         | ✅        | ✅         | ✅         | ✅         |
+| Pre-built Binaries    | ✅        | ✅         | N/A        | N/A        |
+
+### Embedded vs External Server Mode
+
+**Embedded Mode (Python & JavaScript):**
+The SDK automatically spawns and manages a `toondb-mcp` server process. The server is started on `Database.open()` and stopped on `Database.close()`.
+
+```python
+# Python - embedded mode (default)
+db = ToonDB.open("./my_database")
+# Server started automatically
+db.close()
+# Server stopped automatically
+```
+
+```javascript
+// JavaScript - embedded mode (default)
+const db = await Database.open('./my_database');
+// Server started automatically
+await db.close();
+// Server stopped automatically
+```
+
+**External Server Mode (Go):**
+The Go SDK requires manual server startup:
+
+```bash
+# Start server first
+./toondb-mcp serve --db ./my_database
+```
+
+```go
+// Then connect from Go
+db, err := toondb.Open("./my_database")
+```
+
+---
+
 ## Python SDK Architecture
 
 The Python SDK provides multiple access patterns to ToonDB:
@@ -1023,4 +1111,4 @@ See [PYTHON_DISTRIBUTION.md](PYTHON_DISTRIBUTION.md) for full distribution archi
 
 ---
 
-*This document describes ToonDB v0.2.3 internals. Implementation details may change.*
+*This document describes ToonDB v0.2.4 internals. Implementation details may change.*

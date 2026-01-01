@@ -12,9 +12,9 @@ path = "src/lib.rs"
 
 [dependencies]
 # ToonDB dependencies
-toondb-core = { version = "0.2.3", path = "../toondb-core" }
-toondb-storage = { version = "0.2.3", path = "../toondb-storage" }
-toondb-index = { version = "0.2.3", path = "../toondb-index" }
+toondb-core = { version = "0.2.4", path = "../toondb-core" }
+toondb-storage = { version = "0.2.4", path = "../toondb-storage" }
+toondb-index = { version = "0.2.4", path = "../toondb-index" }
 
 # Memory mapping for segment files
 memmap2 = "0.9"

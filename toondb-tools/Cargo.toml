@@ -4,15 +4,20 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "ToonDB command-line tools for bulk operations, ETL, and index management"
+description = "ToonDB command-line tools for bulk operations, ETL, IPC server, and index management"
 
 [[bin]]
 name = "toondb-bulk"
 path = "src/main.rs"
 
+[[bin]]
+name = "toondb-server"
+path = "src/server.rs"
+
 [dependencies]
-toondb-index = { version = "0.2.3", path = "../toondb-index" }
-toondb-core = { version = "0.2.3", path = "../toondb-core" }
+toondb-index = { version = "0.2.4", path = "../toondb-index" }
+toondb-core = { version = "0.2.4", path = "../toondb-core" }
+toondb-storage = { version = "0.2.4", path = "../toondb-storage" }
 
 # CLI
 clap = { version = "4.5", features = ["derive", "color", "env"] }
@@ -46,6 +51,9 @@ rand = { workspace = true }
 
 # System calls (for madvise, getrusage)
 libc = "0.2"
+
+# Signal handling for server
+ctrlc = "3.4"
 
 [dev-dependencies]
 tempfile = { workspace = true }

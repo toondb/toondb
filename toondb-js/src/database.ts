@@ -20,6 +20,7 @@ import * as path from 'path';
 import { DatabaseError, TransactionError } from './errors';
 import { IpcClient } from './ipc-client';
 import { Query } from './query';
+import { startEmbeddedServer, stopEmbeddedServer } from './server-manager';
 
 /**
  * Configuration options for the Database.
@@ -35,6 +36,11 @@ export interface DatabaseConfig {
   syncMode?: 'full' | 'normal' | 'off';
   /** Maximum size of the memtable before flushing (default: 64MB) */
   memtableSizeBytes?: number;
+  /** 
+   * Whether to automatically start an embedded server (default: true)
+   * Set to false if connecting to an existing external server
+   */
+  embedded?: boolean;
 }
 
 /**
@@ -164,6 +170,7 @@ export class Database {
   private _client: IpcClient | null = null;
   private _config: DatabaseConfig;
   private _closed = false;
+  private _embeddedServerStarted = false;
 
   private constructor(config: DatabaseConfig) {
     this._config = {
@@ -171,6 +178,7 @@ export class Database {
       walEnabled: true,
       syncMode: 'normal',
       memtableSizeBytes: 64 * 1024 * 1024,
+      embedded: true,  // Default to embedded mode
       ...config,
     };
   }
@@ -183,7 +191,7 @@ export class Database {
    *
    * @example
    * ```typescript
-   * // Simple usage
+   * // Simple usage (embedded mode - starts server automatically)
    * const db = await Database.open('./my_database');
    *
    * // With configuration
@@ -191,6 +199,12 @@ export class Database {
    *   path: './my_database',
    *   walEnabled: true,
    *   syncMode: 'full',
+   * });
+   * 
+   * // Connect to existing external server
+   * const db = await Database.open({
+   *   path: './my_database',
+   *   embedded: false,  // Don't start embedded server
    * });
    * ```
    */
@@ -207,8 +221,17 @@ export class Database {
 
     const db = new Database(config);
 
-    // Connect to IPC server (or start embedded server)
-    const socketPath = path.join(config.path, 'toondb.sock');
+    // Start embedded server if configured (default: true)
+    let socketPath: string;
+    if (db._config.embedded !== false) {
+      // Start embedded server and get socket path
+      socketPath = await startEmbeddedServer(config.path);
+      db._embeddedServerStarted = true;
+    } else {
+      // Connect to existing server socket
+      socketPath = path.join(config.path, 'toondb.sock');
+    }
+
     db._client = await IpcClient.connect(socketPath);
 
     return db;
@@ -357,12 +380,18 @@ export class Database {
 
   /**
    * Close the database connection.
+   * If running in embedded mode, also stops the embedded server.
    */
   async close(): Promise<void> {
     if (this._closed) return;
     if (this._client) {
       await this._client.close();
       this._client = null;
+    }
+    // Stop embedded server if we started it
+    if (this._embeddedServerStarted) {
+      await stopEmbeddedServer(this._config.path);
+      this._embeddedServerStarted = false;
     }
     this._closed = true;
   }

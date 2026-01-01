@@ -1,6 +1,6 @@
 {
   "name": "@sushanth/toondb",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "ToonDB is an AI-native database with token-optimized output, O(|path|) lookups, built-in vector search, and durable transactions.",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",
@@ -14,14 +14,16 @@
   },
   "files": [
     "dist",
+    "_bin",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "npm run build:cjs && npm run build:esm && npm run build:types",
+    "build": "npm run build:cjs && npm run build:esm && npm run build:types && npm run postbuild",
     "build:cjs": "tsc -p tsconfig.cjs.json",
     "build:esm": "tsc -p tsconfig.esm.json",
     "build:types": "tsc -p tsconfig.types.json",
+    "postbuild": "node scripts/fix-esm-imports.js",
     "test": "jest",
     "test:coverage": "jest --coverage",
     "lint": "eslint src --ext .ts",

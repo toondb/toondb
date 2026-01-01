@@ -1,6 +1,6 @@
 [package]
 name = "toondb-studio"
-version = "0.2.3"
+version = "0.2.4"
 description = "ToonDB Studio - Database Administration Tool for ToonDB"
 authors = ["ToonDB Team"]
 edition = "2024"
@@ -24,10 +24,10 @@ tokio = { version = "1", features = ["full"] }
 base64 = "0.22"
 
 # ToonDB integration
-toondb = { version = "0.2.3", path = "../../toondb-client", features = ["embedded"] }
-toondb-core = { version = "0.2.3", path = "../../toondb-core" }
-toondb-storage = { version = "0.2.3", path = "../../toondb-storage" }
-toondb-mcp = { version = "0.2.3", path = "../../toondb-mcp" }
+toondb = { version = "0.2.4", path = "../../toondb-client", features = ["embedded"] }
+toondb-core = { version = "0.2.4", path = "../../toondb-core" }
+toondb-storage = { version = "0.2.4", path = "../../toondb-storage" }
+toondb-mcp = { version = "0.2.4", path = "../../toondb-mcp" }
 
 # Async utilities
 parking_lot = "0.12"

@@ -7,8 +7,8 @@ license.workspace = true
 description = "ToonDB gRPC vector index service for cross-language clients"
 
 [dependencies]
-toondb-index = { version = "0.2.3", path = "../toondb-index" }
-toondb-core = { version = "0.2.3", path = "../toondb-core" }
+toondb-index = { version = "0.2.4", path = "../toondb-index" }
+toondb-core = { version = "0.2.4", path = "../toondb-core" }
 
 # gRPC / Protocol Buffers
 tonic = "0.13"

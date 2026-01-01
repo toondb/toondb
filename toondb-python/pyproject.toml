@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "toondb"
-version = "0.2.3"
+version = "0.2.4"
 description = "ToonDB - AI-native database with zero-copy vector search via PyO3"
 readme = "README.md"
 license = {text = "Apache-2.0"}

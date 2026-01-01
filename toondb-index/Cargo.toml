@@ -16,8 +16,8 @@ description = "ToonDB indexing (HNSW vector index and related utilities)"
 crate-type = ["lib", "cdylib"]
 
 [dependencies]
-toondb-core = { version = "0.2.3", path = "../toondb-core" }
-toondb-storage = { version = "0.2.3", path = "../toondb-storage" }
+toondb-core = { version = "0.2.4", path = "../toondb-core" }
+toondb-storage = { version = "0.2.4", path = "../toondb-storage" }
 dashmap = { workspace = true }
 parking_lot = { workspace = true }
 moka = { workspace = true }  # LRU cache for path resolution

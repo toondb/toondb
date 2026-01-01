@@ -15,14 +15,48 @@ npm install @sushanth/toondb
 ```
 
 **Zero compilation required** - pre-built binaries are bundled for all major platforms:
-- Linux x86_64 and aarch64 (glibc ≥ 2.17)
-- macOS Intel and Apple Silicon (universal2)
+- Linux x86_64 (glibc ≥ 2.17)
+- macOS ARM64 (Apple Silicon)
+- macOS x86_64 (Intel)
 - Windows x64
+
+## Architecture
+
+The SDK supports two modes of operation:
+
+### Embedded Mode (Default)
+The SDK automatically starts and manages a ToonDB server process:
+
+```
+┌─────────────────┐  auto-start   ┌──────────────────┐
+│  Your Node.js   │ ──────────►   │  ToonDB Server   │
+│   Application   │               │  (toondb-mcp)    │
+└─────────────────┘               └──────────────────┘
+         │                                 │
+         │         IPC/Socket              │
+         └────────────────────────────────►│
+                                           ▼
+                                   ┌──────────────────┐
+                                   │  Storage Engine  │
+                                   │  (LSM, WAL, etc) │
+                                   └──────────────────┘
+```
+
+### External Server Mode
+Connect to an existing ToonDB server (for multi-process access):
+
+```typescript
+const db = await Database.open({
+  path: './my_database',
+  embedded: false  // Don't start embedded server
+});
+```
 
 ## Features
 
 ### Core Database
-- 🚀 **IPC Mode**: Multi-process access via Unix domain sockets
+- 🚀 **Embedded Mode**: Automatically manages server lifecycle (v0.2.4+)
+- 📡 **IPC Mode**: Multi-process access via Unix domain sockets
 - 📁 **Path-Native API**: Hierarchical data organization with O(|path|) lookups
 - 💾 **ACID Transactions**: Full transaction support with snapshot isolation
 - 🔍 **Range Scans**: Efficient prefix and range queries
@@ -38,6 +72,7 @@ npm install @sushanth/toondb
 - 📦 **Zero-Compile Install**: Pre-built Rust binaries bundled in package
 - 🌍 **Cross-Platform**: Linux, macOS, Windows with automatic platform detection
 - 📝 **TypeScript**: Full type definitions included
+- ✅ **ESM & CommonJS**: Works with both module systems
 
 ## Quick Start
 
@@ -46,7 +81,7 @@ npm install @sushanth/toondb
 ```typescript
 import { Database } from '@sushanth/toondb';
 
-// Open a database (creates if doesn't exist)
+// Open a database (creates if doesn't exist, starts embedded server)
 const db = await Database.open('./my_database');
 
 // Simple key-value operations
@@ -64,7 +99,7 @@ await db.withTransaction(async (txn) => {
   // Automatically commits on success, aborts on exception
 });
 
-// Clean up
+// Clean up (stops embedded server automatically)
 await db.close();
 ```
 

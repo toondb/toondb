@@ -25,6 +25,12 @@ import { VERSION } from './index';
 jest.mock('./ipc-client');
 jest.mock('fs');
 jest.mock('child_process');
+jest.mock('./server-manager', () => ({
+  startEmbeddedServer: jest.fn().mockResolvedValue('/tmp/test_db/toondb.sock'),
+  stopEmbeddedServer: jest.fn().mockResolvedValue(undefined),
+  stopAllEmbeddedServers: jest.fn().mockResolvedValue(undefined),
+  isServerRunning: jest.fn().mockReturnValue(false),
+}));
 
 // Type for mocked IpcClient
 type MockIpcClient = {
@@ -52,8 +58,8 @@ describe('ToonDB SDK Comprehensive Tests', () => {
       expect(VERSION).toMatch(/^\d+\.\d+\.\d+/);
     });
 
-    it('should be 0.2.3', () => {
-      expect(VERSION).toBe('0.2.3');
+    it('should be 0.2.4', () => {
+      expect(VERSION).toBe('0.2.4');
     });
   });
 

@@ -7,6 +7,25 @@
 
 The official Go client SDK for **ToonDB** — a high-performance embedded document database with HNSW vector search.
 
+## Architecture
+
+The Go SDK is an **IPC client** that communicates with the ToonDB server via Unix domain sockets:
+
+```
+┌─────────────────┐         IPC/Socket         ┌──────────────────┐
+│   Go SDK        │ ◄────────────────────────► │  ToonDB Server   │
+│  (toondb-go)    │    (toondb.sock)           │  (toondb-mcp)    │
+└─────────────────┘                            └──────────────────┘
+                                                        │
+                                                        ▼
+                                                ┌──────────────────┐
+                                                │  Storage Engine  │
+                                                │  (LSM, WAL, etc) │
+                                                └──────────────────┘
+```
+
+> **Note:** Unlike embedded databases like SQLite, the Go SDK requires a ToonDB server process to be running. The Python and JavaScript SDKs include automatic server management, but the Go SDK currently requires manual server startup.
+
 ## Features
 
 - ✅ **Key-Value Store** — Simple `Get`/`Put`/`Delete` operations
@@ -17,15 +36,42 @@ The official Go client SDK for **ToonDB** — a high-performance embedded docume
 - ✅ **Type-Safe** — Full Go type safety with generics
 - ✅ **Zero CGO** — Pure Go IPC client (no C dependencies)
 
+## Prerequisites
+
+Before using the Go SDK, you must:
+
+1. **Install the ToonDB server binary** (one of these methods):
+   
+   ```bash
+   # Option 1: Download pre-built binaries
+   # Download from: https://github.com/toondb/toondb/releases
+   
+   # Option 2: Build from source (requires Rust)
+   cargo build --release -p toondb-mcp
+   ```
+
+2. **Start the ToonDB server** before running your Go application:
+   
+   ```bash
+   # Start server for a database directory
+   ./target/release/toondb-mcp serve --db ./my_database
+   ```
+
+3. **(Optional) For vector search**, also build the toondb-bulk tool:
+   
+   ```bash
+   cargo build --release -p toondb-tools
+   ```
+
 ## Installation
 
 ```bash
-go get github.com/toondb/toondb/toondb-go
+go get github.com/toondb/toondb/toondb-go@v0.2.4
 ```
 
 **Requirements:**
 - Go 1.21+
-- ToonDB server (for IPC mode)
+- ToonDB server running (see Prerequisites)
 
 ## Quick Start
 

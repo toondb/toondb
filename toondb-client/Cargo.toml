@@ -15,10 +15,10 @@ readme = "README.md"
 
 [dependencies]
 # Internal crates
-toondb-core = { version = "0.2.3", path = "../toondb-core" }
-toondb-storage = { version = "0.2.3", path = "../toondb-storage" }
-toondb-index = { version = "0.2.3", path = "../toondb-index" }
-toondb-query = { version = "0.2.3", path = "../toondb-query" }
+toondb-core = { version = "0.2.4", path = "../toondb-core" }
+toondb-storage = { version = "0.2.4", path = "../toondb-storage" }
+toondb-index = { version = "0.2.4", path = "../toondb-index" }
+toondb-query = { version = "0.2.4", path = "../toondb-query" }
 
 # Synchronization
 parking_lot = "0.12"
