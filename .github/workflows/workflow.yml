@@ -129,11 +129,20 @@ jobs:
       - name: Build release binaries
         shell: bash
         run: |
-          cargo build --release --target ${{ matrix.target }} \
-            -p toondb-tools \
-            -p toondb-storage \
-            -p toondb-index \
-            -p toondb-grpc
+          # toondb-server uses Unix sockets - skip on Windows
+          if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
+            cargo build --release --target ${{ matrix.target }} \
+              -p toondb-tools --bin toondb-bulk \
+              -p toondb-storage \
+              -p toondb-index \
+              -p toondb-grpc
+          else
+            cargo build --release --target ${{ matrix.target }} \
+              -p toondb-tools \
+              -p toondb-storage \
+              -p toondb-index \
+              -p toondb-grpc
+          fi
 
       - name: Create artifact directory
         shell: bash
@@ -142,15 +151,14 @@ jobs:
           
           # Copy binaries and shared libraries
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            # Binaries
+            # Binaries (no toondb-server on Windows - uses Unix sockets)
             cp target/${{ matrix.target }}/release/toondb-bulk.exe artifacts/${{ matrix.target }}/
-            cp target/${{ matrix.target }}/release/toondb-server.exe artifacts/${{ matrix.target }}/
             cp target/${{ matrix.target }}/release/toondb-grpc-server.exe artifacts/${{ matrix.target }}/
             # Shared libraries (DLLs)
             cp target/${{ matrix.target }}/release/toondb_storage.dll artifacts/${{ matrix.target }}/
             cp target/${{ matrix.target }}/release/toondb_index.dll artifacts/${{ matrix.target }}/
           else
-            # Binaries
+            # Binaries (Unix: Linux + macOS)
             cp target/${{ matrix.target }}/release/toondb-bulk artifacts/${{ matrix.target }}/
             cp target/${{ matrix.target }}/release/toondb-server artifacts/${{ matrix.target }}/
             cp target/${{ matrix.target }}/release/toondb-grpc-server artifacts/${{ matrix.target }}/
@@ -309,7 +317,7 @@ jobs:
           
           if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
             cp binaries/${{ matrix.target }}/toondb-bulk.exe toondb-python-sdk/src/toondb/_bin/${{ matrix.target }}/
-            cp binaries/${{ matrix.target }}/toondb-server.exe toondb-python-sdk/src/toondb/_bin/${{ matrix.target }}/
+            # toondb-server not available on Windows (Unix sockets only)
             cp binaries/${{ matrix.target }}/toondb-grpc-server.exe toondb-python-sdk/src/toondb/_bin/${{ matrix.target }}/
           else
             cp binaries/${{ matrix.target }}/toondb-bulk toondb-python-sdk/src/toondb/_bin/${{ matrix.target }}/
