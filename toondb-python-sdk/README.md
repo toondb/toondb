@@ -8,15 +8,20 @@ The official Python SDK for **ToonDB** — a high-performance embedded document 
 
 ## Version
 
-**v0.2.6** (January 2026)
+**v0.2.7** (January 2026)
+
+**What's New in 0.2.7:**
+- ✅ **Full SQL engine support** - CREATE TABLE, INSERT, SELECT, UPDATE, DELETE
+- ✅ **SQL in transactions** - execute() method on Transaction objects
+- ✅ **SQL WHERE clauses** - Supports =, !=, <, >, >=, <=, LIKE, NOT LIKE
+- ✅ **SQL ORDER BY, LIMIT, OFFSET** - Complete query control
+- ✅ SQL storage via KV backend (no circular dependencies)
 
 **What's New in 0.2.6:**
 - ✅ Enhanced `scan_prefix()` method for efficient prefix-based iteration
 - ✅ Bulk vector operations (~1,600 vec/s for HNSW index building)
 - ✅ Zero-compilation installation with pre-built binaries
 - ✅ Improved FFI performance and error handling
-
-> **Note:** SQL support is available via **IPC mode only** (not embedded mode). The embedded `Database` class uses FFI bindings which don't expose SQL. See [IPC Mode](#ipc-mode-multi-process) section for SQL usage.
 
 ## Features
 
@@ -25,9 +30,9 @@ The official Python SDK for **ToonDB** — a high-performance embedded document 
 - ✅ **Prefix Scanning** — Fast `scan_prefix()` for multi-tenant data isolation
 - ✅ **ACID Transactions** — Full snapshot isolation with automatic commit/abort
 - ✅ **Vector Search** — HNSW with bulk API (~1,600 vec/s ingestion)
+- ✅ **SQL Support** — Full DDL/DML with CREATE, INSERT, SELECT, UPDATE, DELETE
 - ✅ **Dual Mode** — Embedded (FFI) or IPC (multi-process)
 - ✅ **Zero Compilation** — Pre-built binaries for Linux/macOS/Windows
-- 🚧 **SQL Support** — Coming in a future release
 
 ## Installation
 

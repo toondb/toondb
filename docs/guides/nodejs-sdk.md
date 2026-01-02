@@ -1,6 +1,6 @@
 # JavaScript/Node.js SDK Guide
 
-> **Version:** 0.2.6  
+> **Version:** 0.2.7  
 > **Time:** 20 minutes  
 > **Difficulty:** Beginner  
 > **Prerequisites:** Node.js 18+, TypeScript 5+

@@ -9,7 +9,13 @@ The official Go client SDK for **ToonDB** — a high-performance embedded docume
 
 ## Version
 
-**v0.2.6** (January 2026)
+**v0.2.7** (January 2026)
+
+**What's New in 0.2.7:**
+- ✅ **Embedded server mode** - Automatically starts/stops toondb-server
+- ✅ **Zero external setup** - No need to manually run server process
+- ✅ Server lifecycle management with automatic cleanup
+- ✅ Platform-specific binary discovery (darwin, linux, x86_64, aarch64)
 
 **What's New in 0.2.6:**
 - ✅ Fixed wire protocol compatibility with ToonDB server
@@ -23,6 +29,7 @@ The official Go client SDK for **ToonDB** — a high-performance embedded docume
 - ✅ **Key-Value Store** — Simple `Get`/`Put`/`Delete` operations
 - ✅ **Path-Native API** — Hierarchical keys like `users/alice/email`
 - ✅ **Prefix Scanning** — Fast `Scan()` for multi-tenant data isolation
+- ✅ **Embedded Mode** — Automatic server lifecycle management
 - ✅ **Transactions** — ACID-compliant with automatic commit/abort
 - ✅ **Query Builder** — Fluent API for complex queries (returns TOON format)
 - ✅ **Vector Search** — HNSW approximate nearest neighbor search
@@ -32,27 +39,18 @@ The official Go client SDK for **ToonDB** — a high-performance embedded docume
 ## Installation
 
 ```bash
-go get github.com/toondb/toondb/toondb-go@v0.2.6
+go get github.com/toondb/toondb/toondb-go@v0.2.7
 ```
-
-> ⚠️ **Important: Server Required**
->
-> Unlike Python/JS/Rust SDKs, the Go SDK is an **IPC client only** — it requires a running ToonDB server.
-> The Go SDK does not support embedded mode. You must start the server before using the SDK.
 
 **Requirements:**
 - Go 1.21+
-- ToonDB server running (see below)
-
-**Start the server first:**
-```bash
-# Download or build toondb-server from the main repo, then:
-./toondb-server --db ./my_database
-
-# Output: [IpcServer] Listening on "./my_database/toondb.sock"
-```
+- ToonDB server binary (automatically managed in embedded mode)
 
 ## Quick Start
+
+### Embedded Mode (Recommended)
+
+The SDK automatically starts and stops the server:
 
 ```go
 package main
@@ -60,25 +58,57 @@ package main
 import (
     "fmt"
     "log"
-    toondb "github.com/toondb/toondb/toondb-go"
+    "github.com/toondb/toondb/toondb-go"
 )
 
 func main() {
+    // Open database with embedded server (default)
     db, err := toondb.Open("./my_database")
     if err != nil {
         log.Fatal(err)
     }
-    defer db.Close()
+    defer db.Close() // Automatically stops server
 
-    // Put and Get
-    db.Put([]byte("user:123"), []byte(`{"name":"Alice","age":30}`))
-    value, _ := db.Get([]byte("user:123"))
-    fmt.Println(string(value))
-    // Output: {"name":"Alice","age":30}
+    // Use database
+    err = db.Put([]byte("key"), []byte("value"))
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    value, err := db.Get([]byte("key"))
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Printf("Value: %s\n", value)
 }
 ```
 
-## Core Operations
+### External Server Mode
+
+If you want to manage the server yourself:
+
+```go
+config := &toondb.Config{
+    Path:     "./my_database",
+    Embedded: false, // Disable embedded mode
+}
+
+db, err := toondb.OpenWithConfig(config)
+if err != nil {
+    log.Fatal(err)
+}
+defer db.Close()
+```
+
+**Start the server manually:**
+```bash
+# Download or build toondb-server from the main repo, then:
+./toondb-server --db ./my_database
+
+# Output: [IpcServer] Listening on "./my_database/toondb.sock"
+```
+
+## Core API
 
 ### Basic Key-Value
 

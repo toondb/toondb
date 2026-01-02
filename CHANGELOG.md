@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.7] - 2026-01-01
+
+### Added
+- **Full SQL engine support** in Python SDK with DDL/DML operations (CREATE/DROP TABLE, INSERT, SELECT, UPDATE, DELETE)
+- **Full SQL engine support** in JavaScript SDK with complete SQL parser and executor
+- **Go embedded server mode** - automatically starts/stops toondb-server without external setup
+- **Transaction SQL support** - execute() method added to Transaction class in Python SDK
+- SQL storage using KV backend with `_sql/tables/` prefix (tables and rows stored as JSON)
+- WHERE clause support with operators: =, !=, <, >, >=, <=, LIKE, NOT LIKE
+- ORDER BY with ASC/DESC, LIMIT, and OFFSET support
+- Data types: INT, TEXT, FLOAT, BOOL, BLOB
+
+### Changed
+- JavaScript stats() response format changed from key=value to valid JSON
+- Go SDK now defaults to embedded mode (Config.Embedded = true)
+- Python SDK execute_sql() added as alias for execute() for documentation consistency
+
+### Fixed
+- **Critical**: Python SQL API now returns actual query results (was returning empty rows)
+- **Critical**: IPC server stats command now returns valid JSON format
+- **Critical**: Go SDK no longer requires external server process
+- JavaScript SDK ESM imports now use explicit .js extensions
+
+---
+
 ## [0.2.6] - 2026-01-01
 
 ### Added

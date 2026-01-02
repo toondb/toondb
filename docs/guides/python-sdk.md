@@ -1,6 +1,6 @@
 # Python SDK Guide
 
-> **Version:** 0.2.6  
+> **Version:** 0.2.7  
 > **Time:** 25 minutes  
 > **Difficulty:** Beginner  
 > **Prerequisites:** Python 3.9+
@@ -33,6 +33,12 @@ Complete guide to ToonDB's Python SDK with key-value operations, bulk operations
 ```bash
 pip install toondb-client
 ```
+
+**What's New in 0.2.7:**
+- ✅ Full SQL engine support (CREATE, INSERT, SELECT, UPDATE, DELETE)
+- ✅ SQL in transactions via Transaction.execute()
+- ✅ SQL WHERE clauses with multiple operators
+- ✅ SQL ORDER BY, LIMIT, OFFSET support
 
 **What's New in 0.2.6:**
 - ✅ Enhanced `scan_prefix()` method for multi-tenant isolation
@@ -716,4 +722,4 @@ pytest --cov=toondb tests/
 
 ---
 
-*Last updated: January 2026 (v0.2.6)*
+*Last updated: January 2026 (v0.2.7)*

@@ -1,6 +1,6 @@
 # Go SDK Guide
 
-> **Version:** 0.2.6  
+> **Version:** 0.2.7  
 > **Time:** 20 minutes  
 > **Difficulty:** Beginner  
 > **Prerequisites:** Go 1.21+
@@ -28,8 +28,13 @@ Complete guide to ToonDB's Go SDK with all features, patterns, and best practice
 ## Installation
 
 ```bash
-go get github.com/toondb/toondb/toondb-go@v0.2.6
+go get github.com/toondb/toondb/toondb-go@v0.2.7
 ```
+
+**What's New in 0.2.7:**
+- ✅ Embedded server mode with automatic lifecycle management
+- ✅ Zero external setup required
+- ✅ Platform-specific binary discovery
 
 **What's New in 0.2.6:**
 - ✅ Fixed wire protocol compatibility (Little Endian)
@@ -863,4 +868,4 @@ go test -run TestScan -v
 
 ---
 
-*Last updated: January 2026 (v0.2.6)*
+*Last updated: January 2026 (v0.2.7)*

@@ -1,6 +1,6 @@
 {
   "name": "@sushanth/toondb",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "ToonDB is an AI-native database with token-optimized output, O(|path|) lookups, built-in vector search, and durable transactions.",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",
