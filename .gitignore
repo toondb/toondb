@@ -39,7 +39,7 @@ toondb-python-sdk/src/toondb/_bin/
 .env.*
 !.env.example
 .npmrc
-scripts/
+/scripts/
 .venv
 .pytest_cache
 
