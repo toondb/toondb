@@ -28,9 +28,9 @@ toon-format = "0.4"
 fastembed = { version = "4", optional = true }
 
 # ToonDB crates
-toondb = { version = "0.2.7", path = "../toondb-client", features = ["embedded"] }
-toondb-core = { version = "0.2.7", path = "../toondb-core" }
-toondb-query = { version = "0.2.7", path = "../toondb-query" }
+toondb = { version = "0.2.8", path = "../toondb-client", features = ["embedded"] }
+toondb-core = { version = "0.2.8", path = "../toondb-core" }
+toondb-query = { version = "0.2.8", path = "../toondb-query" }
 
 # Minimal additional deps
 tracing = "0.1"

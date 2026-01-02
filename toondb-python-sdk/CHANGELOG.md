@@ -14,7 +14,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Updated to match latest Rust SDK API patterns
 
-## [Unreleased]
+## [0.2.8] - 2026-01-02
+
+### Added
+
+#### Production-Grade CLI Tools
+
+CLI commands now available globally after `pip install toondb-client`:
+
+```bash
+toondb-server      # IPC server for multi-process access
+toondb-bulk        # High-performance vector operations
+toondb-grpc-server # gRPC server for remote vector search
+```
+
+**toondb-server features:**
+- **Stale socket detection** - Auto-cleans orphaned socket files
+- **Health checks** - Waits for server ready before returning
+- **Graceful shutdown** - Handles SIGTERM/SIGINT/SIGHUP
+- **PID tracking** - Writes PID file for process management
+- **Permission checks** - Validates directory writable before starting
+- **stop/status commands** - Built-in process management
+
+**toondb-bulk features:**
+- **Input validation** - Checks file exists, readable, correct extension
+- **Output validation** - Checks directory writable, handles overwrites
+- **Progress reporting** - Shows file sizes during operations
+- **Structured subcommands** - build-index, query, info, convert
+
+**toondb-grpc-server features:**
+- **Port checking** - Verifies port available before binding
+- **Process detection** - Identifies what process is using a port
+- **Privileged port check** - Warns about ports < 1024 requiring root
+- **status command** - Check if server is running
+
+#### Consistent Exit Codes
+
+| Code | Name | Description |
+|------|------|-------------|
+| 0 | SUCCESS | Operation completed |
+| 1 | GENERAL_ERROR | General error |
+| 2 | BINARY_NOT_FOUND | Native binary not found |
+| 3 | PORT/SOCKET_IN_USE | Port or socket in use |
+| 4 | PERMISSION_DENIED | Permission denied |
+| 5 | STARTUP_FAILED | Server startup failed |
+| 130 | INTERRUPTED | Interrupted by Ctrl+C |
+
+#### Environment Variable Overrides
+
+- `TOONDB_SERVER_PATH` - Override toondb-server binary path
+- `TOONDB_BULK_PATH` - Override toondb-bulk binary path  
+- `TOONDB_GRPC_SERVER_PATH` - Override toondb-grpc-server binary path
+
+### Changed
+
+- CLI wrappers now provide actionable error messages with fix suggestions
+- Binary resolution searches multiple locations with clear fallback chain
+- Signal handlers for graceful shutdown on all platforms
+
+## [0.2.3] - 2025-01-xx
 
 ### Added
 

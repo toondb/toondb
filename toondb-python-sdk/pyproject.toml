@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "toondb-client"
-version = "0.2.7"
+version = "0.2.8"
 description = "ToonDB is an AI-native database with token-optimized output, O(|path|) lookups, built-in vector search, and durable transactions."
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -50,6 +50,12 @@ Homepage = "https://toondb.dev"
 Repository = "https://github.com/toondb/toondb"
 Documentation = "https://docs.toondb.dev"
 "Bug Tracker" = "https://github.com/toondb/toondb/issues"
+
+[project.scripts]
+# CLI tools accessible from anywhere after pip install
+toondb-server = "toondb.cli_server:main"
+toondb-bulk = "toondb.cli_bulk:main"
+toondb-grpc-server = "toondb.cli_grpc:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

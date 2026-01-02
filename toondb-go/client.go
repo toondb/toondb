@@ -261,7 +261,7 @@ func (c *IPCClient) Stats() (*StorageStats, error) {
 		WALSizeBytes       uint64 `json:"wal_size_bytes"`
 		ActiveTransactions int    `json:"active_transactions"`
 	}
-	
+
 	if err := json.Unmarshal(payload, &stats); err != nil {
 		return nil, &ProtocolError{Message: fmt.Sprintf("failed to parse stats JSON: %v", err)}
 	}
@@ -344,7 +344,7 @@ func (c *IPCClient) sendKeyOp(op OpCode, key []byte) ([]byte, error) {
 		binary.LittleEndian.PutUint16(payload[0:2], 1) // 1 segment
 		binary.LittleEndian.PutUint16(payload[2:4], uint16(len(path)))
 		copy(payload[4:], path)
-		
+
 		if err := c.sendMessage(op, payload); err != nil {
 			return nil, err
 		}
@@ -374,7 +374,7 @@ func (c *IPCClient) sendKeyValueOp(op OpCode, key, value []byte) ([]byte, error)
 		binary.LittleEndian.PutUint16(payload[2:4], uint16(len(path)))
 		copy(payload[4:4+len(path)], path)
 		copy(payload[4+len(path):], value)
-		
+
 		if err := c.sendMessage(op, payload); err != nil {
 			return nil, err
 		}
@@ -384,7 +384,7 @@ func (c *IPCClient) sendKeyValueOp(op OpCode, key, value []byte) ([]byte, error)
 		binary.LittleEndian.PutUint32(payload[0:4], uint32(len(key)))
 		copy(payload[4:4+len(key)], key)
 		copy(payload[4+len(key):], value)
-		
+
 		if err := c.sendMessage(op, payload); err != nil {
 			return nil, err
 		}
@@ -442,7 +442,7 @@ func (c *IPCClient) readSimpleResponse() error {
 		return c.parseErrorPayload(payload)
 	}
 
-	if opcode != OpOK {
+	if opcode != OpOK && opcode != OpTxnID {
 		return &ProtocolError{Message: fmt.Sprintf("expected OK, got opcode %#x", opcode)}
 	}
 

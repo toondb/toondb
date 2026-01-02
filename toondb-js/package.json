@@ -1,6 +1,6 @@
 {
   "name": "@sushanth/toondb",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "ToonDB is an AI-native database with token-optimized output, O(|path|) lookups, built-in vector search, and durable transactions.",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",
@@ -15,10 +15,16 @@
   "files": [
     "dist",
     "_bin",
+    "bin",
     "scripts/postinstall.js",
     "README.md",
     "LICENSE"
   ],
+  "bin": {
+    "toondb-server": "./bin/toondb-server.js",
+    "toondb-bulk": "./bin/toondb-bulk.js",
+    "toondb-grpc-server": "./bin/toondb-grpc-server.js"
+  },
   "scripts": {
     "build": "npm run build:cjs && npm run build:esm && npm run build:types && npm run postbuild",
     "build:cjs": "tsc -p tsconfig.cjs.json",

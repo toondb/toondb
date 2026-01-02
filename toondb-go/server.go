@@ -166,8 +166,10 @@ func StartEmbeddedServer(dbPath string) (string, error) {
 	}
 
 	// Start the server process
-	cmd := exec.Command(binaryPath, "--data-dir", absolutePath)
+	cmd := exec.Command(binaryPath, "--db", absolutePath)
 	cmd.Dir = absolutePath
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
 	// Start the process
 	if err := cmd.Start(); err != nil {

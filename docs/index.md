@@ -172,6 +172,13 @@ Complete technical specifications.
 - [Node.js API](/api-reference/nodejs-api) — TypeScript/JavaScript API
 - [Go API](/api-reference/go-api) — Go package documentation
 
+### 🛠️ Server Reference
+Deep technical documentation for ToonDB servers and tools.
+
+- [IPC Server](/servers/IPC_SERVER.md) — Wire protocol & architecture
+- [gRPC Server](/servers/GRPC_SERVER.md) — Vector search service
+- [Bulk Operations](/servers/BULK_OPERATIONS.md) — High-performance tools
+
 ### 🍳 Cookbook
 Recipes for common tasks.
 

@@ -114,16 +114,7 @@ func NewVectorIndex(path string, config *VectorIndexConfig) *VectorIndex {
 // The vectors parameter should be a slice of float32 slices,
 // where each inner slice has length equal to the dimension.
 //
-// Labels are optional string labels for each vector.
-//
-// Example:
-//
-//	vectors := [][]float32{
-//	    {0.1, 0.2, 0.3, ...},  // 384-dim vector
-//	    {0.4, 0.5, 0.6, ...},
-//	}
-//	labels := []string{"doc1", "doc2"}
-//	err := index.BulkBuild(vectors, labels)
+// Labels are currently ignored in raw format mode.
 func (vi *VectorIndex) BulkBuild(vectors [][]float32, labels []string) error {
 	if len(vectors) == 0 {
 		return nil
@@ -148,12 +139,12 @@ func (vi *VectorIndex) BulkBuild(vectors [][]float32, labels []string) error {
 		return err
 	}
 
-	// Write vectors to temporary TOON format file
-	toonPath := filepath.Join(vi.path, "vectors.toon")
-	if err := vi.writeVectorsToToon(toonPath, vectors, labels); err != nil {
+	// Write vectors to temporary RAW format file
+	rawPath := filepath.Join(vi.path, "vectors.raw")
+	if err := vi.writeVectorsToRaw(rawPath, vectors); err != nil {
 		return err
 	}
-	defer os.Remove(toonPath)
+	defer os.Remove(rawPath)
 
 	// Find toondb-bulk binary
 	bulkBin, err := vi.findBulkBinary()
@@ -162,14 +153,12 @@ func (vi *VectorIndex) BulkBuild(vectors [][]float32, labels []string) error {
 	}
 
 	// Run bulk build
+	// Note: We removed --m, --metric, --ef-construction as requested by user fixes.
 	args := []string{
-		"build-hnsw",
-		"--input", toonPath,
+		"build-index",
+		"--input", rawPath,
 		"--output", vi.indexPath,
 		"--dimension", strconv.Itoa(dim),
-		"--metric", string(vi.config.Metric),
-		"--m", strconv.Itoa(vi.config.M),
-		"--ef-construction", strconv.Itoa(vi.config.EfConstruction),
 	}
 
 	cmd := exec.Command(bulkBin, args...)
@@ -212,12 +201,12 @@ func (vi *VectorIndex) Query(vector []float32, k int, efSearch int) ([]VectorSea
 	defer os.Remove(queryPath)
 
 	// Run query
+	// Note: Removed --ef-search as requested.
 	args := []string{
-		"query-hnsw",
+		"query",
 		"--index", vi.indexPath,
 		"--query", queryPath,
 		"--k", strconv.Itoa(k),
-		"--ef-search", strconv.Itoa(efSearch),
 	}
 
 	cmd := exec.Command(bulkBin, args...)
@@ -292,7 +281,7 @@ func (vi *VectorIndex) findBulkBinary() (string, error) {
 	}
 }
 
-func (vi *VectorIndex) writeVectorsToToon(path string, vectors [][]float32, labels []string) error {
+func (vi *VectorIndex) writeVectorsToRaw(path string, vectors [][]float32) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
@@ -301,40 +290,8 @@ func (vi *VectorIndex) writeVectorsToToon(path string, vectors [][]float32, labe
 
 	w := bufio.NewWriter(f)
 
-	// Write header: magic, version, count, dimension
-	if err := binary.Write(w, binary.LittleEndian, uint32(0x544F4F4E)); err != nil { // "TOON"
-		return err
-	}
-	if err := binary.Write(w, binary.LittleEndian, uint32(1)); err != nil { // version
-		return err
-	}
-	if err := binary.Write(w, binary.LittleEndian, uint64(len(vectors))); err != nil {
-		return err
-	}
-	if err := binary.Write(w, binary.LittleEndian, uint32(len(vectors[0]))); err != nil {
-		return err
-	}
-
-	// Write vectors
-	for i, vec := range vectors {
-		// Write ID
-		if err := binary.Write(w, binary.LittleEndian, uint64(i)); err != nil {
-			return err
-		}
-
-		// Write label length and label
-		label := ""
-		if i < len(labels) {
-			label = labels[i]
-		}
-		if err := binary.Write(w, binary.LittleEndian, uint32(len(label))); err != nil {
-			return err
-		}
-		if _, err := w.WriteString(label); err != nil {
-			return err
-		}
-
-		// Write vector components
+	// Write vectors flat
+	for _, vec := range vectors {
 		for _, v := range vec {
 			if err := binary.Write(w, binary.LittleEndian, v); err != nil {
 				return err
@@ -354,10 +311,7 @@ func (vi *VectorIndex) writeQueryVector(path string, vector []float32) error {
 
 	w := bufio.NewWriter(f)
 
-	// Write dimension
-	if err := binary.Write(w, binary.LittleEndian, uint32(len(vector))); err != nil {
-		return err
-	}
+	// No dimension header for raw format
 
 	// Write vector components
 	for _, v := range vector {

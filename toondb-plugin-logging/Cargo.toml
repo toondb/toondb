@@ -1,12 +1,12 @@
 [package]
 name = "toondb-plugin-logging"
-version = "0.2.7"
+version = "0.2.8"
 edition = "2024"
 description = "JSON structured logging plugin for ToonDB"
 license = "Apache-2.0"
 
 [dependencies]
-toondb-kernel = { version = "0.2.7", path = "../toondb-kernel" }
+toondb-kernel = { version = "0.2.8", path = "../toondb-kernel" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = "0.4"

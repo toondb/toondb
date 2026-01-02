@@ -15,7 +15,7 @@ package toondb.vector.v1;
 
 option java_package = "com.toondb.vector.v1";
 option java_multiple_files = true;
-option go_package = "github.com/sushanthpy/toondb/proto/vector/v1;vectorv1";
+option go_package = "github.com/toondb/toondb/proto/vector/v1;vectorv1";
 
 // =============================================================================
 // VECTOR INDEX SERVICE

@@ -1,13 +1,13 @@
 [package]
 name = "benchmarks"
-version = "0.2.7"
+version = "0.2.8"
 edition = "2021"
 
 [dependencies]
-toondb = { version = "0.2.7", path = "../toondb-client", features = ["embedded"] }
-toondb-core = { version = "0.2.7", path = "../toondb-core" }
-toondb-index = { version = "0.2.7", path = "../toondb-index" }
-toondb-storage = { version = "0.2.7", path = "../toondb-storage" }
+toondb = { version = "0.2.8", path = "../toondb-client", features = ["embedded"] }
+toondb-core = { version = "0.2.8", path = "../toondb-core" }
+toondb-index = { version = "0.2.8", path = "../toondb-index" }
+toondb-storage = { version = "0.2.8", path = "../toondb-storage" }
 rusqlite = { version = "0.31", features = ["bundled"] }
 rand = "0.8"
 tempfile = "3.8"

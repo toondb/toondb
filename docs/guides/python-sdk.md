@@ -1,13 +1,11 @@
 # Python SDK Guide
 
-> **Version:** 0.2.7  
-> **Time:** 25 minutes  
-> **Difficulty:** Beginner  
+> **Version:** 0.2.8  
+> **Time:** 35 minutes  
+> **Difficulty:** Beginner to Intermediate  
 > **Prerequisites:** Python 3.9+
 
-Complete guide to ToonDB's Python SDK with key-value operations, bulk operations, and multi-process modes.
-
-> **Note:** SQL support is planned for a future release. This guide covers key-value and path-based operations.
+Complete guide to ToonDB's Python SDK covering SQL, key-value operations, advanced features (TOON format, batched scanning, plugins), bulk operations, and multi-process modes.
 
 ---
 
@@ -23,8 +21,19 @@ Complete guide to ToonDB's Python SDK with key-value operations, bulk operations
 8. [Query Builder](#query-builder)
 9. [Vector Search](#vector-search)
 10. [IPC Mode](#ipc-mode)
-11. [Best Practices](#best-practices)
-12. [Complete Examples](#complete-examples)
+11. [CLI Tools](#cli-tools)
+    - [toondb-server](#toondb-server-options)
+    - [toondb-bulk](#toondb-bulk)
+    - [toondb-grpc-server](#toondb-grpc-server)
+12. [Advanced Features](#advanced-features)
+    - [TOON Format](#toon-format)
+    - [Batched Scanning](#batched-scanning)
+    - [Statistics & Monitoring](#statistics--monitoring)
+    - [Manual Checkpoint](#manual-checkpoint)
+    - [Python Plugins](#python-plugins)
+    - [Transaction Advanced](#transaction-advanced)
+13. [Best Practices](#best-practices)
+14. [Complete Examples](#complete-examples)
 
 ---
 
@@ -445,15 +454,23 @@ Top 10 nearest neighbors:
 
 ## IPC Mode
 
-For multi-process applications:
+For multi-process applications, ToonDB provides a high-performance IPC server with Unix domain socket communication.
+
+> **Deep Dive:** See [IPC Server Capabilities](../servers/IPC_SERVER.md) for wire protocol details, internals, and architecture.
+
+### Quick Start
 
 ```bash
-# Terminal 1: Start server
+# Start the IPC server (globally available after pip install)
 toondb-server --db ./my_database
+
+# Check status
+toondb-server status --db ./my_database
+# Output: [Server] Running (PID: 12345)
 ```
 
 ```python
-# Terminal 2: Connect
+# Connect from Python (or any other process)
 from toondb import IpcClient
 
 client = IpcClient.connect("./my_database/toondb.sock")
@@ -461,8 +478,410 @@ client = IpcClient.connect("./my_database/toondb.sock")
 client.put(b"key", b"value")
 value = client.get(b"key")
 print(value.decode())
-
 # Output: value
+```
+
+### toondb-server Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--db PATH` | `./toondb_data` | Database directory |
+| `--socket PATH` | `<db>/toondb.sock` | Unix socket path |
+| `--max-clients N` | `100` | Maximum concurrent connections |
+| `--timeout-ms MS` | `30000` | Connection timeout (30s) |
+| `--log-level LEVEL` | `info` | trace/debug/info/warn/error |
+
+### Server Commands
+
+```bash
+# Start server
+toondb-server --db ./my_database
+
+# Check if running
+toondb-server status --db ./my_database
+# Output: [Server] Running (PID: 12345)
+#         Socket: ./my_database/toondb.sock
+#         Database: /absolute/path/to/my_database
+
+# Stop server gracefully
+toondb-server stop --db ./my_database
+```
+
+### Production Configuration
+
+```bash
+# High-traffic production setup
+toondb-server \
+    --db /var/lib/toondb/production \
+    --socket /var/run/toondb.sock \
+    --max-clients 500 \
+    --timeout-ms 60000 \
+    --log-level info
+```
+
+### Wire Protocol
+
+The IPC server uses a binary protocol for high-performance communication. See the [Deep Dive](../servers/IPC_SERVER.md) for full opcode usage.
+
+### Server Statistics
+
+The IPC server tracks real-time metrics accessible via `client.stats()`:
+
+```python
+from toondb import IpcClient
+
+client = IpcClient.connect("./my_database/toondb.sock")
+stats = client.stats()
+
+print(f"Connections: {stats['connections_active']}/{stats['connections_total']}")
+print(f"Requests: {stats['requests_success']} success, {stats['requests_error']} errors")
+print(f"Throughput: {stats['bytes_received']} bytes in, {stats['bytes_sent']} bytes out")
+print(f"Uptime: {stats['uptime_secs']} seconds")
+print(f"Active transactions: {stats['active_transactions']}")
+```
+
+---
+
+## CLI Tools
+
+Three CLI tools are available globally after `pip install toondb-client`:
+
+### toondb-bulk
+
+High-performance bulk vector operations (~1,600 vec/s).
+
+> **Deep Dive:** See [Bulk Operations Capabilities](../servers/BULK_OPERATIONS.md) for benchmarks, file formats, and internals.
+
+```bash
+# Build HNSW index from embeddings
+toondb-bulk build-index \
+    --input embeddings.npy \
+    --output index.hnsw \
+    --dimension 768 \
+    --max-connections 16 \
+    --ef-construction 100 \
+    --metric cosine
+
+# Query k-nearest neighbors
+toondb-bulk query \
+    --index index.hnsw \
+    --query query_vector.raw \
+    --k 10 \
+    --ef 64
+
+# Get index metadata
+toondb-bulk info --index index.hnsw
+# Output:
+# Dimension: 768
+# Vectors: 100000
+# Max connections: 16
+
+# Convert between formats
+toondb-bulk convert \
+    --input vectors.npy \
+    --output vectors.raw \
+    --to-format raw_f32 \
+    --dimension 768
+```
+
+### toondb-grpc-server
+
+gRPC server for remote vector search operations.
+
+> **Deep Dive:** See [gRPC Server Capabilities](../servers/GRPC_SERVER.md) for service methods, HNSW configuration, and proto definitions.
+
+```bash
+# Start gRPC server
+toondb-grpc-server --host 0.0.0.0 --port 50051
+
+# Check status
+toondb-grpc-server status --port 50051
+```
+
+**gRPC Service Methods:** See [gRPC Deep Dive](../servers/GRPC_SERVER.md) for full method signatures.
+
+**Python gRPC Client Example:**
+
+```python
+import grpc
+from toondb_pb2 import (
+    CreateIndexRequest, SearchRequest, HnswConfig
+)
+from toondb_pb2_grpc import VectorIndexServiceStub
+
+# Connect to gRPC server
+channel = grpc.insecure_channel('localhost:50051')
+stub = VectorIndexServiceStub(channel)
+
+# Create index
+response = stub.CreateIndex(CreateIndexRequest(
+    name="my_index",
+    dimension=768,
+    metric=1,  # COSINE
+    config=HnswConfig(
+        max_connections=16,
+        ef_construction=200,
+        ef_search=50
+    )
+))
+print(f"Created: {response.info.name}")
+
+# Search
+import numpy as np
+query = np.random.randn(768).astype(np.float32)
+response = stub.Search(SearchRequest(
+    index_name="my_index",
+    query=query.tolist(),
+    k=10
+))
+for result in response.results:
+    print(f"ID: {result.id}, Distance: {result.distance:.4f}")
+```
+
+### Environment Variables
+
+Override bundled binaries with custom paths:
+
+```bash
+export TOONDB_SERVER_PATH=/path/to/toondb-server
+export TOONDB_BULK_PATH=/path/to/toondb-bulk
+export TOONDB_GRPC_SERVER_PATH=/path/to/toondb-grpc-server
+```
+
+---
+
+## Advanced Features
+
+### TOON Format
+
+**Token-Optimized Output Notation** - Achieve **40-66% token reduction** for LLM context.
+
+```python
+from toondb import Database
+
+# Sample records
+records = [
+    {"id": 1, "name": "Alice", "email": "alice@example.com"},
+    {"id": 2, "name": "Bob", "email": "bob@example.com"},
+]
+
+# Convert to TOON format
+toon_str = Database.to_toon("users", records, ["name", "email"])
+print(toon_str)
+# Output: users[2]{name,email}:Alice,alice@example.com;Bob,bob@example.com
+
+# Parse TOON back to records
+table_name, fields, records = Database.from_toon(toon_str)
+print(records)
+# Output: [{"name": "Alice", "email": "alice@example.com"}, ...]
+```
+
+**Token Comparison:**
+- JSON (compact): ~165 tokens
+- TOON format: ~70 tokens (**59% reduction!**)
+
+**Use Case: RAG with LLMs**
+
+```python
+from toondb import Database
+import openai
+
+with Database.open("./knowledge_base") as db:
+    # Query relevant documents
+    results = db.execute_sql("""
+        SELECT title, content 
+        FROM documents 
+        WHERE category = 'technical'
+        LIMIT 10
+    """)
+    
+    # Convert to TOON for efficient context
+    records = [dict(row) for row in results]
+    toon_context = Database.to_toon("documents", records, ["title", "content"])
+    
+    # Send to LLM (saves tokens!)
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": f"Context:\n{toon_context}"},
+            {"role": "user", "content": "Summarize the documents"}
+        ]
+    )
+```
+
+---
+
+### Batched Scanning
+
+**1000× fewer FFI calls** for large dataset scans.
+
+```python
+from toondb import Database
+
+with Database.open("./my_db") as db:
+    # Insert 10K test records
+    with db.transaction() as txn:
+        for i in range(10000):
+            txn.put(f"item:{i:05d}".encode(), f"value:{i}".encode())
+    
+    # Regular scan: 10,000 FFI calls
+    txn = db.transaction()
+    count = sum(1 for _ in txn.scan(b"item:", b"item;"))
+    txn.abort()
+    print(f"Regular scan: {count} items")
+    
+    # Batched scan: 10 FFI calls (1000× fewer!)
+    txn = db.transaction()
+    count = sum(1 for _ in txn.scan_batched(
+        start=b"item:",
+        end=b"item;",
+        batch_size=1000  # Fetch 1000 results per FFI call
+    ))
+    txn.abort()
+    print(f"Batched scan: {count} items (much faster!)")
+```
+
+**Performance:**
+
+| Dataset | Regular Scan | Batched Scan | Speedup |
+|---------|--------------|--------------|---------|
+| 10K items | 15ms | 2ms | 7.5× |
+| 100K items | 150ms | 12ms | 12.5× |
+
+---
+
+### Statistics & Monitoring
+
+```python
+from toondb import Database
+
+with Database.open("./my_db") as db:
+    # Perform operations
+    for i in range(1000):
+        db.put(f"key:{i}".encode(), f"value:{i}".encode())
+    
+    # Get runtime statistics
+    stats = db.stats()
+    
+    print(f"Keys: {stats['keys_count']:,}")
+    print(f"Bytes written: {stats['bytes_written']:,}")
+    print(f"Bytes read: {stats['bytes_read']:,}")
+    print(f"Transactions: {stats['transactions_committed']}")
+    
+    # Cache metrics
+    hits = stats['cache_hits']
+    misses = stats['cache_misses']
+    hit_rate = (hits / (hits + misses) * 100) if (hits + misses) > 0 else 0
+    print(f"Cache hit rate: {hit_rate:.1f}%")
+```
+
+**Available Metrics:**
+- `keys_count` - Total keys
+- `bytes_written` - Cumulative writes
+- `bytes_read` - Cumulative reads
+- `transactions_committed` - Successful transactions
+- `cache_hits` / `cache_misses` - Cache performance
+
+---
+
+### Manual Checkpoint
+
+Force durability checkpoint to flush data to disk.
+
+```python
+from toondb import Database
+
+with Database.open("./my_db") as db:
+    # Bulk import
+    print("Importing 10K records...")
+    with db.transaction() as txn:
+        for i in range(10000):
+            txn.put(f"bulk:{i}".encode(), f"data:{i}".encode())
+    
+    # Force checkpoint
+    lsn = db.checkpoint()
+    print(f"Checkpoint complete at LSN {lsn}")
+    print("All data is durable on disk!")
+```
+
+**When to Use:**
+- ✅ Before backups
+- ✅ After bulk imports
+- ✅ Before system shutdown
+- ✅ Periodic durability (every 5 minutes)
+
+---
+
+### Python Plugins
+
+Run Python code as database triggers.
+
+```python
+from toondb.plugins import PythonPlugin, PluginRegistry, TriggerEvent, TriggerAbort
+
+# Define validation plugin
+plugin = PythonPlugin(
+    name="user_validator",
+    code='''
+def on_before_insert(row: dict) -> dict:
+    """Validate and transform data."""
+    # Normalize email
+    if "email" in row:
+        row["email"] = row["email"].lower().strip()
+    
+    # Validate age
+    if row.get("age", 0) < 0:
+        raise TriggerAbort("Age cannot be negative", code="INVALID_AGE")
+    
+    # Add timestamp
+    import time
+    row["created_at"] = time.time()
+    
+    return row
+''',
+    triggers={"users": ["BEFORE INSERT"]}
+)
+
+# Register and use
+registry = PluginRegistry()
+registry.register(plugin)
+
+# Fire trigger
+row = {"name": "Alice", "email": "  ALICE@EXAMPLE.COM  ", "age": 30}
+result = registry.fire("users", TriggerEvent.BEFORE_INSERT, row)
+print(result["email"])  # "alice@example.com"
+print(result["created_at"])  # 1704182400.0
+```
+
+**Available Events:**
+- `BEFORE_INSERT`, `AFTER_INSERT`
+- `BEFORE_UPDATE`, `AFTER_UPDATE`
+- `BEFORE_DELETE`, `AFTER_DELETE`
+
+---
+
+### Transaction Advanced
+
+```python
+from toondb import Database
+
+with Database.open("./my_db") as db:
+    # Get transaction ID
+    txn = db.transaction()
+    print(f"Transaction ID: {txn.id}")
+    
+    # Perform operations
+    txn.put(b"key", b"value")
+    
+    # Commit returns LSN (Log Sequence Number)
+    lsn = txn.commit()
+    print(f"Committed at LSN: {lsn}")
+    
+    # Execute SQL within transaction
+    txn2 = db.transaction()
+    txn2.execute("INSERT INTO users VALUES (1, 'Alice')")
+    txn2.put(b"user:1:metadata", b'{"verified": true}')
+    txn2.commit()  # Atomic SQL + KV operation
 ```
 
 ---
@@ -516,7 +935,34 @@ for vec in vectors:
     index.insert(vec)  # 12× slower!
 ```
 
-### 6. Always Use Context Managers
+### 6. Use Batched Scanning for Large Datasets
+
+```python
+# ✅ Good: Fast batched scan
+txn = db.transaction()
+for key, value in txn.scan_batched(b"prefix:", b"prefix;", batch_size=1000):
+    process(key, value)
+txn.abort()
+
+# ❌ Bad: Slow regular scan for large datasets
+for key, value in txn.scan(b"prefix:", b"prefix;"):
+    process(key, value)  # 1000× more FFI calls!
+```
+
+### 7. Use TOON Format for LLM Context
+
+```python
+# ✅ Good: Token-efficient for LLMs
+results = db.execute_sql("SELECT * FROM users LIMIT 100")
+records = [dict(row) for row in results]
+toon_context = Database.to_toon("users", records, ["name", "email"])
+# Send to LLM - saves 40-66% tokens!
+
+# ❌ Bad: Wasteful JSON for LLM context
+json_context = json.dumps(records)  # Uses 2× more tokens
+```
+
+### 8. Always Use Context Managers
 
 ```python
 # ✅ Good: Automatic cleanup
@@ -659,10 +1105,31 @@ Electronics: 2 orders, $2124.98
 | `delete(key: bytes)` | Delete key |
 | `put_path(path: str, value: bytes)` | Store by path |
 | `get_path(path: str) -> bytes \| None` | Get by path |
+| `delete_path(path: str)` | Delete by path |
 | `scan(start: bytes, end: bytes)` | Iterate range |
+| `scan_prefix(prefix: bytes)` | Scan keys matching prefix |
 | `transaction()` | Begin transaction |
 | `execute_sql(query: str)` | Execute SQL ⭐ |
-| `checkpoint()` | Force checkpoint |
+| `execute(query: str)` | Alias for execute_sql() |
+| `checkpoint() -> int` | Force checkpoint, returns LSN |
+| `stats() -> dict` | Get runtime statistics |
+| `to_toon(table, records, fields) -> str` | Convert to TOON format (static) |
+| `from_toon(toon_str) -> tuple` | Parse TOON format (static) |
+
+### Transaction
+
+| Method | Description |
+|--------|-------------|
+| `id` | Transaction ID (property) |
+| `put(key: bytes, value: bytes)` | Put within transaction |
+| `get(key: bytes) -> bytes \| None` | Get with snapshot isolation |
+| `delete(key: bytes)` | Delete within transaction |
+| `scan(start: bytes, end: bytes)` | Scan within transaction |
+| `scan_prefix(prefix: bytes)` | Scan keys matching prefix |
+| `scan_batched(start, end, batch_size)` | High-performance batched scan |
+| `execute(sql: str)` | Execute SQL within transaction |
+| `commit() -> int` | Commit, returns LSN |
+| `abort()` | Abort/rollback |
 
 ### IpcClient
 

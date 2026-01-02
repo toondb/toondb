@@ -1,14 +1,19 @@
 # ToonDB JavaScript SDK
 
 [![npm version](https://badge.fury.io/js/%40toondb%2Ftoondb-js.svg)](https://www.npmjs.com/package/@toondb/toondb-js)
-[![CI](https://github.com/sushanthpy/toondb/actions/workflows/js-ci.yml/badge.svg)](https://github.com/sushanthpy/toondb/actions/workflows/js-ci.yml)
+[![CI](https://github.com/toondb/toondb/actions/workflows/js-ci.yml/badge.svg)](https://github.com/toondb/toondb/actions/workflows/js-ci.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 The official JavaScript/TypeScript SDK for **ToonDB** — a high-performance embedded document database with HNSW vector search and built-in multi-tenancy support.
 
 ## Version
 
-**v0.2.7** (January 2026)
+**v0.2.8** (January 2026)
+
+**What's New in 0.2.8:**
+- ✅ **Global CLI Tools** - `toondb-server`, `toondb-bulk`, `toondb-grpc-server` exposed as binaries
+- ✅ **Automatic Binary Resolution** - Smarter platform detection for finding native binaries
+- ✅ **Enhanced Post-Install** - Robust permission fixups for executable binaries
 
 **What's New in 0.2.7:**
 - ✅ **Full SQL engine support** - CREATE TABLE, INSERT, SELECT, UPDATE, DELETE
@@ -40,16 +45,38 @@ The official JavaScript/TypeScript SDK for **ToonDB** — a high-performance emb
 ## Installation
 
 ```bash
-npm install sushanth-toondb@0.2.7
+npm install sushanth-toondb@0.2.8
 # or
-yarn add sushanth-toondb@0.2.7
+yarn add sushanth-toondb@0.2.8
 # or
-bun add sushanth-toondb@0.2.7
+bun add sushanth-toondb@0.2.8
 ```
 
 **Requirements:**
 - Node.js 18+ or Bun 1.0+
-- ToonDB server binary (for embedded mode)
+- ToonDB server binaries (automatically installed)
+
+## CLI Tools
+
+Three CLI tools are globally available after installation (`npm install -g sushanth-toondb`):
+
+### 1. toondb-server
+Start the DB server for IPC (multi-process) mode.
+```bash
+toondb-server --db ./my_database
+```
+
+### 2. toondb-bulk
+High-performance tool for heavy offline tasks (building indexes, converting formats).
+```bash
+toondb-bulk build-index --input vectors.npy --output index.hnsw
+```
+
+### 3. toondb-grpc-server
+Dedicated gRPC server for high-throughput vector search.
+```bash
+toondb-grpc-server --port 50051
+```
 
 ## Quick Start
 
@@ -511,7 +538,7 @@ npm install sushanth-toondb@0.2.6
 
 ```bash
 # Clone repo
-git clone https://github.com/sushanthpy/toondb
+git clone https://github.com/toondb/toondb
 cd toondb/toondb-js
 
 # Install dependencies
@@ -531,11 +558,11 @@ Apache License 2.0
 
 ## Links
 
-- [Documentation](https://toondb.io/docs)
+- [Documentation](https://docs.toondb.dev)
 - [Python SDK](../toondb-python-sdk)
 - [Go SDK](../toondb-go)
-- [GitHub](https://github.com/sushanthpy/toondb)
-- [npm Package](https://www.npmjs.com/package/sushanth-toondb)
+- [GitHub](https://github.com/toondb/toondb)
+- [npm Package](https://www.npmjs.com/package/toondb)
 
 ## Support
 

@@ -1,6 +1,6 @@
 [package]
 name = "toondb-kernel"
-version = "0.2.7"
+version = "0.2.8"
 edition = "2024"
 description = "ToonDB Kernel - Minimal ACID core with plugin architecture"
 license = "Apache-2.0"
@@ -14,7 +14,7 @@ wasm-plugins = ["wasmtime", "toml"]
 
 [dependencies]
 # Minimal dependencies - only what's needed for ACID core
-toondb-core = { version = "0.2.7", path = "../toondb-core" }
+toondb-core = { version = "0.2.8", path = "../toondb-core" }
 thiserror = "2.0"
 parking_lot = "0.12"
 crossbeam-channel = "0.5"

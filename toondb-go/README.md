@@ -1,7 +1,7 @@
 # ToonDB Go SDK
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/toondb/toondb/toondb-go.svg)](https://pkg.go.dev/github.com/toondb/toondb/toondb-go)
-[![CI](https://github.com/sushanthpy/toondb/actions/workflows/go-ci.yml/badge.svg)](https://github.com/sushanthpy/toondb/actions/workflows/go-ci.yml)
+[![CI](https://github.com/toondb/toondb/actions/workflows/go-ci.yml/badge.svg)](https://github.com/toondb/toondb/actions/workflows/go-ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/toondb/toondb/toondb-go)](https://goreportcard.com/report/github.com/toondb/toondb/toondb-go)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
@@ -9,7 +9,12 @@ The official Go client SDK for **ToonDB** — a high-performance embedded docume
 
 ## Version
 
-**v0.2.7** (January 2026)
+**v0.2.8** (January 2026)
+
+**What's New in 0.2.8:**
+- ✅ **Native CLI Wrappers** - `toondb-server`, `toondb-bulk`, `toondb-grpc-server` available via `go install`
+- ✅ **Advanced Binary Discovery** - Launchers locate native binaries in PATH or standard locations
+- ✅ **Unified Tooling** - Seamless experience for multi-language environments
 
 **What's New in 0.2.7:**
 - ✅ **Embedded server mode** - Automatically starts/stops toondb-server
@@ -39,12 +44,37 @@ The official Go client SDK for **ToonDB** — a high-performance embedded docume
 ## Installation
 
 ```bash
-go get github.com/toondb/toondb/toondb-go@v0.2.7
+go get github.com/toondb/toondb/toondb-go@v0.2.8
 ```
 
 **Requirements:**
 - Go 1.21+
 - ToonDB server binary (automatically managed in embedded mode)
+
+## CLI Tools
+
+Go-native wrappers for the ToonDB tools are available in the `cmd/` directory.
+
+### Installation
+
+```bash
+# Install the wrappers to your $GOPATH/bin
+go install github.com/toondb/toondb/toondb-go/cmd/toondb-server@latest
+go install github.com/toondb/toondb/toondb-go/cmd/toondb-bulk@latest
+go install github.com/toondb/toondb/toondb-go/cmd/toondb-grpc-server@latest
+```
+
+> **Note:** These wrappers require the native binary to be in your PATH or `TOONDB_SERVER_PATH` to be set.
+
+### Usage
+
+```bash
+# Start server
+toondb-server --db ./my_db
+
+# Bulk operations
+toondb-bulk build-index --input vec.npy --output index.hnsw
+```
 
 ## Quick Start
 
@@ -410,7 +440,7 @@ Apache License 2.0
 
 ## Links
 
-- [Documentation](https://toondb.io/docs)
+- [Documentation](https://docs.toondb.dev/)
 - [Python SDK](../toondb-python-sdk)
 - [JavaScript SDK](../toondb-js)
-- [GitHub](https://github.com/sushanthpy/toondb)
+- [GitHub](https://github.com/toondb/toondb)

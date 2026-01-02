@@ -1,6 +1,6 @@
 # Go SDK Guide
 
-> **Version:** 0.2.7  
+> **Version:** 0.2.8  
 > **Time:** 20 minutes  
 > **Difficulty:** Beginner  
 > **Prerequisites:** Go 1.21+
@@ -44,6 +44,27 @@ go get github.com/toondb/toondb/toondb-go@v0.2.7
 - ✅ Zero CGO dependencies
 
 ---
+
+## CLI Tools (v0.2.8+)
+
+ToonDB includes Go-native wrappers for installation via `go install`:
+
+1. **`toondb-server`**: IPC server management.
+   ```bash
+   go install github.com/toondb/toondb/toondb-go/cmd/toondb-server@latest
+   ```
+
+2. **`toondb-bulk`**: Bulk operations tool.
+   ```bash
+   go install github.com/toondb/toondb/toondb-go/cmd/toondb-bulk@latest
+   ```
+
+3. **`toondb-grpc-server`**: gRPC vector server.
+   ```bash
+   go install github.com/toondb/toondb/toondb-go/cmd/toondb-grpc-server@latest
+   ```
+
+> **Deep Dive:** See [Server Reference](/servers/IPC_SERVER.md) for full usage.
 
 ## Quick Start
 

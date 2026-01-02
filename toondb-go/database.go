@@ -15,7 +15,7 @@ import (
 )
 
 // Version is the current SDK version.
-const Version = "0.2.7"
+const Version = "0.2.8"
 
 // Config holds database configuration options.
 type Config struct {
@@ -84,7 +84,7 @@ type Database struct {
 	config              *Config
 	mu                  sync.RWMutex
 	embeddedServerOwned bool
-	closed bool
+	closed              bool
 }
 
 // Open opens a database at the specified path.
@@ -265,6 +265,19 @@ func (db *Database) Query(prefix string) *Query {
 	return NewQuery(db.client, prefix)
 }
 
+// Scan scans keys with a prefix, returning key-value pairs.
+// This is the preferred method for prefix-based iteration.
+func (db *Database) Scan(prefix string) ([]KeyValue, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	if db.closed {
+		return nil, ErrClosed
+	}
+
+	return db.client.Scan(prefix)
+}
+
 // WithTransaction executes operations within a transaction.
 //
 // The transaction commits on success or aborts on error.
@@ -380,7 +393,7 @@ func (db *Database) Execute(sql string) (*SQLQueryResult, error) {
 		Columns:      make([]string, 0),
 		RowsAffected: 0,
 	}
-	
+
 	return result, nil
 }
 
@@ -395,15 +408,15 @@ func (db *Database) Close() error {
 	}
 
 	db.closed = true
-	
+
 	// Close the client connection first
 	err := db.client.Close()
-	
+
 	// Stop embedded server if we started it
 	if db.embeddedServerOwned {
 		StopEmbeddedServer(db.config.Path)
 	}
-	
+
 	return err
 }
 

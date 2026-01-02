@@ -2,6 +2,8 @@
 
 High-performance bulk vector index operations that bypass Python FFI overhead.
 
+> **Deep Dive:** See [Bulk Operations Reference](/servers/BULK_OPERATIONS.md) for tool internals and advanced usage.
+
 ## Why Use Bulk Operations?
 
 Python FFI has inherent overhead for vector operations:

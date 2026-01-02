@@ -44,4 +44,4 @@ export {
   isServerRunning,
 } from './server-manager';
 
-export const VERSION = '0.2.7';
+export const VERSION = '0.2.8';

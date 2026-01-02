@@ -1,6 +1,6 @@
 # JavaScript/Node.js SDK Guide
 
-> **Version:** 0.2.7  
+> **Version:** 0.2.8  
 > **Time:** 20 minutes  
 > **Difficulty:** Beginner  
 > **Prerequisites:** Node.js 18+, TypeScript 5+
@@ -46,6 +46,18 @@ yarn add toondb
 - ✅ Improved error messages
 
 **Package size:** 2.1 MB (includes native binaries)
+
+---
+
+## CLI Tools (v0.2.8+)
+
+ToonDB includes three globally available CLI tools after installation:
+
+1. **`toondb-server`**: Start the IPC server process.
+2. **`toondb-bulk`**: High-performance index building and file conversion.
+3. **`toondb-grpc-server`**: Dedicated gRPC server for vector operations.
+
+> **Deep Dive:** See [Server Reference](/servers/IPC_SERVER.md) for full commands and usage.
 
 ---
 

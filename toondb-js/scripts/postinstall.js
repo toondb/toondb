@@ -21,7 +21,7 @@ if (!fs.existsSync(binDir)) {
   process.exit(0);
 }
 
-const binaryNames = ['toondb-server', 'toondb-bulk'];
+const binaryNames = ['toondb-server', 'toondb-bulk', 'toondb-grpc-server'];
 const targets = [
   'aarch64-apple-darwin',
   'x86_64-apple-darwin',

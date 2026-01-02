@@ -78,7 +78,7 @@ The Go SDK has the `Execute()` API defined:
 package main
 
 import (
-    "github.com/sushanthpy/toondb-go"
+    "github.com/toondb/toondb-go"
 )
 
 func main() {

@@ -150,7 +150,7 @@ pub struct ArraySchema {
 /// let conn = DurableConnection::open("./data")?;
 /// ```
 /// 
-/// See: <https://github.com/sushanthpy/toondb/blob/main/docs/ARCHITECTURE.md#wal-integration>
+/// See: <https://github.com/toondb/toondb/blob/main/docs/ARCHITECTURE.md#wal-integration>
 #[deprecated(
     since = "0.2.0",
     note = "Use DurableConnection or toondb_storage::WalStorageManager for production. \
@@ -213,7 +213,7 @@ impl WalStorageManager {
 /// let conn = DurableConnection::open("./data")?;
 /// ```
 ///
-/// See: <https://github.com/sushanthpy/toondb/blob/main/docs/ARCHITECTURE.md#wal-integration>
+/// See: <https://github.com/toondb/toondb/blob/main/docs/ARCHITECTURE.md#wal-integration>
 #[deprecated(
     since = "0.2.0",
     note = "Use DurableConnection or toondb_storage::MvccTransactionManager for production. \
@@ -2092,7 +2092,7 @@ pub struct TchStats {
 /// - Stub transaction manager (no real MVCC)
 /// - Catalog for schema management
 ///
-/// See: <https://github.com/sushanthpy/toondb/blob/main/docs/ARCHITECTURE.md#connection-types>
+/// See: <https://github.com/toondb/toondb/blob/main/docs/ARCHITECTURE.md#connection-types>
 pub struct ToonConnection {
     /// Trie-Columnar Hybrid - THE core data structure
     pub(crate) tch: Arc<RwLock<TrieColumnarHybrid>>,

@@ -526,7 +526,7 @@ match client.get(b"key").await {
 
 ```bash
 # Clone repository
-git clone https://github.com/sushanthpy/toondb
+git clone https://github.com/toondb/toondb
 cd toondb
 
 # Build all crates
@@ -568,7 +568,7 @@ Apache License 2.0
 - [Python SDK](../toondb-python-sdk)
 - [Go SDK](../toondb-go)
 - [JavaScript SDK](../toondb-js)
-- [GitHub](https://github.com/sushanthpy/toondb)
+- [GitHub](https://github.com/toondb/toondb)
 
 ## Support
 

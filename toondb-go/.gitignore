@@ -1,0 +1,8 @@
+# Binaries
+/toondb-server
+/toondb-bulk
+/toondb-grpc-server
+
+# Test artifacts
+*.test
+*.out

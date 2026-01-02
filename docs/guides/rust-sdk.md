@@ -1,6 +1,6 @@
 # Rust SDK Guide
 
-> **Version:** 0.2.7  
+> **Version:** 0.2.8  
 > **Time:** 25 minutes  
 > **Difficulty:** Intermediate  
 > **Prerequisites:** Rust 1.70+, Tokio runtime
@@ -32,11 +32,11 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-toondb-client = "0.2.7"
+toondb-client = "0.2.8"
 tokio = { version = "1", features = ["full"] }
 
 # Optional: For SQL support
-toondb-query = "0.2.7"
+toondb-query = "0.2.8"
 ```
 
 **What's New in 0.2.6:**
@@ -45,6 +45,24 @@ toondb-query = "0.2.7"
 - ✅ SQL integration via toondb-query
 - ✅ Zero-copy read optimizations
 - ✅ Improved error types
+
+---
+
+## CLI Tools (v0.2.8+)
+
+Install the official CLI tools using Cargo:
+
+```bash
+# Install toondb-server and toondb-bulk
+cargo install toondb-tools
+
+# Install toondb-grpc-server
+cargo install toondb-grpc
+```
+
+These binaries provide the same functionality as the Python/Node/Go wrappers but are compiled directly from source.
+
+> **Deep Dive:** See [Server Reference](/servers/IPC_SERVER.md) for full usage.
 
 ---
 
