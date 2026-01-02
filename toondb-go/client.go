@@ -37,6 +37,7 @@ const (
 	OpCheckpoint OpCode = 0x0C
 	OpStats      OpCode = 0x0D
 	OpPing       OpCode = 0x0E
+	OpExecuteSQL OpCode = 0x0F
 )
 
 // Server → Client response opcodes

@@ -26,10 +26,10 @@ pip install toondb
 npm install @sushanth/toondb
 
 # Rust (add to Cargo.toml)
-toondb-client = "0.2.8"
+toondb-client = "0.2.9"
 
 # Go
-go get github.com/toondb/toondb/toondb-go@v0.2.8
+go get github.com/toondb/toondb/toondb-go@v0.2.9
 ```
 
 ### Opening a Database

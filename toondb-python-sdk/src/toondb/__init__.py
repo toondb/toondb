@@ -43,7 +43,7 @@ except ImportError:
     BulkBuildStats = None
     QueryResult = None
 
-__version__ = "0.2.8"
+__version__ = "0.2.9"
 __all__ = [
     "Database",
     "Transaction", 

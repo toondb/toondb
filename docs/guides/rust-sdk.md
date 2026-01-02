@@ -14,11 +14,11 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-toondb-client = "0.2.8"
+toondb-client = "0.2.9"
 tokio = { version = "1", features = ["full"] }
 
 # Optional: For SQL support
-toondb-query = "0.2.8"
+toondb-query = "0.2.9"
 ```
 
 **What's New in 0.2.6:**
@@ -30,7 +30,7 @@ toondb-query = "0.2.8"
 
 ---
 
-## CLI Tools (v0.2.8+)
+## CLI Tools (v0.2.9+)
 
 Install the official CLI tools using Cargo:
 
@@ -939,4 +939,4 @@ Cleaned up 0 expired sessions
 
 ---
 
-*Last updated: January 2026 (v0.2.8)*
+*Last updated: January 2026 (v0.2.9)*

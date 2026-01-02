@@ -1,6 +1,6 @@
 # ToonDB CLI Tools
 
-> **v0.2.8** - Production-grade Python wrappers for ToonDB command-line tools
+> **v0.2.9** - Production-grade Python wrappers for ToonDB command-line tools
 
 After `pip install toondb-client`, three CLI commands are globally available:
 
@@ -368,7 +368,7 @@ rm ./my_db/toondb.sock
 ./toondb-bulk build-index --input missing.npy  # Cryptic error
 ```
 
-### After (v0.2.8)
+### After (v0.2.9)
 
 ```bash
 # Simple, global commands
@@ -423,4 +423,4 @@ kill <PID>
 
 ---
 
-*Last updated: January 2026 (v0.2.8)*
+*Last updated: January 2026 (v0.2.9)*

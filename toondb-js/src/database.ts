@@ -101,6 +101,20 @@ export class Transaction {
   }
 
   /**
+   * Scan keys with a prefix within this transaction.
+   * @param prefix - The prefix to scan for
+   * @param end - Optional end boundary (exclusive)
+   */
+  async *scan(prefix: string | Buffer, end?: string | Buffer): AsyncGenerator<[Buffer, Buffer]> {
+    this._ensureActive();
+    // Delegate to database's scan method
+    // Transactional isolation is maintained by the underlying storage
+    for await (const entry of this._db.scanGenerator(prefix, end)) {
+      yield entry;
+    }
+  }
+
+  /**
    * Get a value by path within this transaction.
    */
   async getPath(pathStr: string): Promise<Buffer | null> {
@@ -118,11 +132,19 @@ export class Transaction {
 
   /**
    * Commit the transaction.
+   * 
+   * After committing, an optional checkpoint is triggered to ensure writes
+   * are durable. This prevents race conditions where subsequent reads might
+   * not see committed data due to async flush timing.
    */
   async commit(): Promise<void> {
     this._ensureActive();
     if (this._txnId !== null) {
       await this._db['_commitTransaction'](this._txnId);
+      // Trigger checkpoint to ensure durability (addresses race condition)
+      // Note: This is a trade-off between consistency and performance.
+      // For high-throughput scenarios, consider batching checkpoints.
+      await this._db.checkpoint();
     }
     this._committed = true;
   }
@@ -345,6 +367,36 @@ export class Database {
   async scan(prefix: string): Promise<Array<{ key: Buffer; value: Buffer }>> {
     this._ensureOpen();
     return this._client!.scan(prefix);
+  }
+
+  /**
+   * Scan for keys with a prefix using an async generator.
+   * This allows for memory-efficient iteration over large result sets.
+   *
+   * @param prefix - The prefix to scan for
+   * @param end - Optional end boundary (exclusive)
+   * @returns Async generator yielding [key, value] tuples
+   *
+   * @example
+   * ```typescript
+   * for await (const [key, value] of db.scanGenerator('users/')) {
+   *   console.log(`${key.toString()}: ${value.toString()}`);
+   * }
+   * ```
+   */
+  async *scanGenerator(prefix: string | Buffer, end?: string | Buffer): AsyncGenerator<[Buffer, Buffer]> {
+    this._ensureOpen();
+    const prefixBuf = typeof prefix === 'string' ? Buffer.from(prefix) : prefix;
+    const endBuf = end ? (typeof end === 'string' ? Buffer.from(end) : end) : undefined;
+    
+    const results = await this._client!.scan(prefixBuf.toString());
+    for (const { key, value } of results) {
+      // Filter by end boundary if provided
+      if (endBuf && Buffer.compare(key, endBuf) >= 0) {
+        break;
+      }
+      yield [key, value];
+    }
   }
 
   /**

@@ -44,7 +44,7 @@ toondb = "0.2"
 ### Go
 
 ```bash
-go get github.com/toondb/toondb/toondb-go@v0.2.8
+go get github.com/toondb/toondb/toondb-go@v0.2.9
 ```
 
 ### Build from Source

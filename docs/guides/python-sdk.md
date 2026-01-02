@@ -1,6 +1,6 @@
 # Python SDK Guide
 
-> **Version:** 0.2.8  
+> **Version:** 0.2.9  
 > **Time:** 35 minutes  
 > **Difficulty:** Beginner to Intermediate  
 > **Prerequisites:** Python 3.9+
@@ -1189,4 +1189,4 @@ pytest --cov=toondb tests/
 
 ---
 
-*Last updated: January 2026 (v0.2.8)*
+*Last updated: January 2026 (v0.2.9)*

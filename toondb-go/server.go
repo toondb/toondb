@@ -65,11 +65,25 @@ func findServerBinary() (string, error) {
 
 	binaryName := "toondb-server"
 
-	// Search paths
+	// Get package directory
+	_, filename, _, ok := runtime.Caller(0)
+	pkgDir := "."
+	if ok {
+		pkgDir = filepath.Dir(filename)
+	}
+
+	// Search paths (prioritize bundled binaries)
 	cwd, _ := os.Getwd()
 	searchPaths := []string{
-		// Current working directory
-		filepath.Join(cwd, "_bin", target, binaryName),
+		// 1. Bundled binary in Go module
+		filepath.Join(pkgDir, "bin", fmt.Sprintf("%s_%s", goos, goarch), binaryName),
+		filepath.Join(pkgDir, "bin", target, binaryName),
+		
+		// 2. Development builds
+		filepath.Join(pkgDir, "..", "target", "release", binaryName),
+		filepath.Join(pkgDir, "..", "target", "debug", binaryName),
+		
+		// 3. Current working directory
 		filepath.Join(cwd, "target", "release", binaryName),
 		filepath.Join(cwd, "target", "debug", binaryName),
 		// Parent directory (if running from examples or tests)
@@ -78,6 +92,11 @@ func findServerBinary() (string, error) {
 		// Toondb workspace root
 		filepath.Join(cwd, "..", "..", "_bin", target, binaryName),
 		filepath.Join(cwd, "..", "..", "target", "release", binaryName),
+	}
+
+	// 4. Check environment variable
+	if envPath := os.Getenv("TOONDB_SERVER_PATH"); envPath != "" {
+		searchPaths = append([]string{envPath}, searchPaths...)
 	}
 
 	for _, p := range searchPaths {

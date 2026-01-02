@@ -11,7 +11,7 @@ Complete guide to ToonDB's Go SDK with all features, patterns, and best practice
 ## 📦 Installation
 
 ```bash
-go get github.com/toondb/toondb/toondb-go@v0.2.8
+go get github.com/toondb/toondb/toondb-go@v0.2.9
 ```
 
 **What's New in 0.2.7:**
@@ -28,7 +28,7 @@ go get github.com/toondb/toondb/toondb-go@v0.2.8
 
 ---
 
-## CLI Tools (v0.2.8+)
+## CLI Tools (v0.2.9+)
 
 ToonDB includes Go-native wrappers for installation via `go install`:
 
@@ -394,6 +394,31 @@ results, err := db.Query("products/").
 
 ### SQL-Like Operations
 
+**✅ SQL Support Now Available (v0.2.9+):**
+
+```go
+// Create table
+_, err := db.Execute(`
+    CREATE TABLE users (
+        id INT PRIMARY KEY,
+        name TEXT,
+        email TEXT,
+        age INT
+    )
+`)
+
+// Insert data
+_, err = db.Execute("INSERT INTO users VALUES (1, 'Alice', 'alice@example.com', 30)")
+
+// Query data
+result, err := db.Execute("SELECT * FROM users WHERE age > 25")
+for _, row := range result.Rows {
+    fmt.Printf("User: %v\n", row)
+}
+```
+
+**Or use the Query Builder for JSON documents:**
+
 ```go
 // INSERT-like: Store structured data
 type Product struct {
@@ -416,8 +441,6 @@ for _, kv := range results {
     fmt.Printf("%s: %s\n", kv.Key, kv.Value)
 }
 ```
-
-**Note:** For full SQL (CREATE TABLE, JOIN), use Python SDK or Rust API.
 
 ---
 
@@ -872,4 +895,4 @@ go test -run TestScan -v
 
 ---
 
-*Last updated: January 2026 (v0.2.8)*
+*Last updated: January 2026 (v0.2.9)*

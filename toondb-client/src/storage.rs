@@ -325,20 +325,31 @@ impl<'a> ScanBuilder<'a> {
 
     /// Execute scan with columnar projection
     pub fn execute(self) -> Result<ColumnIterator> {
+        // Delegate to connection's scan method
+        let start = self.range.as_ref().map(|r| r.start.as_slice()).unwrap_or(b"");
+        let end = self.range.as_ref().map(|r| r.end.as_slice()).unwrap_or(&[0xFF; 256]);
+        
+        let limit = self.limit.unwrap_or(usize::MAX);
+        
+        // Get raw key-value pairs from storage
+        let results = self.storage.conn.scan(start, end, limit)?;
+        
         // Record stats
-        self.storage.record_scan(self.columns.len(), 0);
-
-        // Placeholder - real impl would:
-        // 1. Resolve column IDs
-        // 2. Create column-optimized scan
-        // 3. Apply predicate pushdown
-
-        Ok(ColumnIterator::new(0))
+        self.storage.record_scan(self.columns.len(), results.len());
+        
+        // Convert to column iterator
+        // In a full implementation, this would extract only the requested columns
+        Ok(ColumnIterator::new(results.len()))
     }
 
     /// Count matching rows (without fetching data)
     pub fn count(self) -> Result<usize> {
-        Ok(0)
+        let start = self.range.as_ref().map(|r| r.start.as_slice()).unwrap_or(b"");
+        let end = self.range.as_ref().map(|r| r.end.as_slice()).unwrap_or(&[0xFF; 256]);
+        let limit = self.limit.unwrap_or(usize::MAX);
+        
+        let results = self.storage.conn.scan(start, end, limit)?;
+        Ok(results.len())
     }
 }
 

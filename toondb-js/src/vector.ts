@@ -27,6 +27,8 @@ export interface VectorSearchResult {
   id: number;
   /** Distance from query vector */
   distance: number;
+  /** Optional label/metadata associated with the vector */
+  label?: string;
 }
 
 /**
@@ -136,6 +138,7 @@ export class VectorIndex {
    *
    * @param vectors - Float32Array of vectors (dimension × count)
    * @param options - Build options
+   * @param labels - Optional array of string labels for each vector
    * @returns Build statistics
    */
   static async bulkBuild(
@@ -146,8 +149,24 @@ export class VectorIndex {
       m?: number;
       efConstruction?: number;
       metric?: 'cosine' | 'euclidean' | 'dot';
-    }
+    },
+    labels?: string[]
   ): Promise<BulkBuildStats> {
+    // Validate inputs
+    if (!vectors || vectors.length === 0) {
+      throw new DatabaseError('vectors array cannot be empty');
+    }
+    
+    if (options.dimension <= 0) {
+      throw new DatabaseError(`dimension must be positive, got ${options.dimension}`);
+    }
+    
+    if (vectors.length % options.dimension !== 0) {
+      throw new DatabaseError(
+        `vectors length (${vectors.length}) must be divisible by dimension (${options.dimension})`
+      );
+    }
+    
     const bulkPath = findBulkBinary();
     const vectorCount = vectors.length / options.dimension;
 
@@ -158,6 +177,19 @@ export class VectorIndex {
     );
     fs.writeFileSync(tempFile, Buffer.from(vectors.buffer));
 
+    // Write labels to temp file if provided
+    let labelsFile: string | undefined;
+    if (labels && labels.length > 0) {
+      if (labels.length !== vectorCount) {
+        throw new DatabaseError(`Labels count (${labels.length}) must match vector count (${vectorCount})`);
+      }
+      labelsFile = path.join(
+        require('os').tmpdir(),
+        `toondb_labels_${Date.now()}.txt`
+      );
+      fs.writeFileSync(labelsFile, labels.join('\n'));
+    }
+
     try {
       const args = [
         'build-index',
@@ -167,6 +199,11 @@ export class VectorIndex {
         '--max-connections', (options.m || 16).toString(),
         '--ef-construction', (options.efConstruction || 100).toString(),
       ];
+
+      // Add labels file argument if provided
+      if (labelsFile) {
+        args.push('--labels', labelsFile);
+      }
 
       const startTime = Date.now();
 
@@ -205,9 +242,12 @@ export class VectorIndex {
       
       return result;
     } finally {
-      // Clean up temp file
+      // Clean up temp files
       if (fs.existsSync(tempFile)) {
         fs.unlinkSync(tempFile);
+      }
+      if (labelsFile && fs.existsSync(labelsFile)) {
+        fs.unlinkSync(labelsFile);
       }
     }
   }
@@ -228,6 +268,19 @@ export class VectorIndex {
       efSearch?: number;
     }
   ): Promise<VectorSearchResult[]> {
+    // Validate inputs
+    if (!indexPath || indexPath.trim() === '') {
+      throw new DatabaseError('indexPath cannot be empty');
+    }
+    
+    if (!fs.existsSync(indexPath)) {
+      throw new DatabaseError(`Index file not found: ${indexPath}`);
+    }
+    
+    if (!query || query.length === 0) {
+      throw new DatabaseError('query vector cannot be empty');
+    }
+    
     const bulkPath = findBulkBinary();
     const k = options?.k || 10;
     const efSearch = options?.efSearch || 64;
@@ -269,20 +322,39 @@ export class VectorIndex {
 
           try {
             const results: VectorSearchResult[] = JSON.parse(stdout);
+            if (results.length === 0) {
+              console.warn(`Warning: Vector search returned 0 results. This may indicate:
+  - Index is empty (no vectors were indexed)
+  - Query vector dimension mismatch
+  - efSearch parameter too low (try increasing from ${efSearch})
+  - Distance threshold filtering out all results`);
+            }
             resolve(results);
           } catch {
-            // Parse line format: id,distance
+            // Parse line format: id,distance[,label]
             const results: VectorSearchResult[] = stdout
               .trim()
               .split('\n')
               .filter((line) => line.length > 0)
               .map((line) => {
-                const [id, distance] = line.split(',');
-                return {
-                  id: parseInt(id, 10),
-                  distance: parseFloat(distance),
+                const parts = line.split(',');
+                const result: VectorSearchResult = {
+                  id: parseInt(parts[0], 10),
+                  distance: parseFloat(parts[1]),
                 };
+                // Include label if present (third column)
+                if (parts.length >= 3 && parts[2].trim()) {
+                  result.label = parts[2].trim();
+                }
+                return result;
               });
+            if (results.length === 0) {
+              console.warn(`Warning: Vector search returned 0 results. This may indicate:
+  - Index is empty (no vectors were indexed)
+  - Query vector dimension mismatch
+  - efSearch parameter too low (try increasing from ${efSearch})
+  - Distance threshold filtering out all results`);
+            }
             resolve(results);
           }
         });

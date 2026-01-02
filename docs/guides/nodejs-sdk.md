@@ -851,4 +851,4 @@ const end = Buffer.from('users;'); // ';' is after '/' in ASCII
 
 ---
 
-*Last updated: January 2026 (v0.2.8)*
+*Last updated: January 2026 (v0.2.9)*

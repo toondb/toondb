@@ -27,7 +27,7 @@ async = ["tokio"]
 embedded-sync = []
 
 [dependencies]
-toondb-core = { version = "0.2.8", path = "../toondb-core" }
+toondb-core = { version = "0.2.9", path = "../toondb-core" }
 # Tokio is optional - only included when "async" feature is enabled
 tokio = { workspace = true, features = ["sync", "time", "macros", "rt"], optional = true }
 serde = { workspace = true }

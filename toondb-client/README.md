@@ -24,7 +24,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-toondb = "0.2.8"
+toondb = "0.2.9"
 tokio = { version = "1", features = ["full"] }  # For async IPC
 ```
 

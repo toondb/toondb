@@ -12,9 +12,9 @@ categories.workspace = true
 description = "ToonDB query engine (sync-first execution and vector query planning)"
 
 [dependencies]
-toondb-core = { version = "0.2.8", path = "../toondb-core" }
-toondb-storage = { version = "0.2.8", path = "../toondb-storage" }
-toondb-index = { version = "0.2.8", path = "../toondb-index" }
+toondb-core = { version = "0.2.9", path = "../toondb-core" }
+toondb-storage = { version = "0.2.9", path = "../toondb-storage" }
+toondb-index = { version = "0.2.9", path = "../toondb-index" }
 ndarray = "0.15"
 thiserror = { workspace = true }
 serde = { workspace = true }

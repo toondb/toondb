@@ -112,6 +112,7 @@ mod opcode {
     pub const CHECKPOINT: u8 = 0x0C;
     pub const STATS: u8 = 0x0D;
     pub const PING: u8 = 0x0E;
+    pub const EXECUTE_SQL: u8 = 0x0F;
 
     /// Server → Client response opcodes
     pub const OK: u8 = 0x80;
@@ -450,11 +451,32 @@ impl ClientHandler {
             opcode::QUERY => self.handle_query(&request.payload),
             opcode::CREATE_TABLE => self.handle_create_table(&request.payload),
             opcode::SCAN => self.handle_scan(&request.payload),
+            opcode::EXECUTE_SQL => self.handle_execute_sql(&request.payload),
 
             opcode::CHECKPOINT => self.handle_checkpoint(),
             opcode::STATS => self.handle_stats(),
 
             _ => Message::error(&format!("Unknown opcode: {:#x}", request.opcode)),
+        }
+    }
+
+    fn handle_execute_sql(&self, payload: &[u8]) -> Message {
+        // Payload: SQL query string (UTF-8)
+        let sql = match std::str::from_utf8(payload) {
+            Ok(s) => s,
+            Err(_) => return Message::error("Invalid UTF-8 in SQL query"),
+        };
+
+        // For now, return error indicating SQL execution happens client-side
+        // The Go SDK will need to implement SQL-to-KV mapping like Python does
+        let result = serde_json::json!({
+            "error": "SQL execution must be implemented client-side. Use Python SDK for full SQL support.",
+            "sql": sql
+        });
+
+        match serde_json::to_vec(&result) {
+            Ok(json) => Message::value(json),
+            Err(e) => Message::error(&format!("Failed to serialize error: {}", e)),
         }
     }
 

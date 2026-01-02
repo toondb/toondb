@@ -15,7 +15,7 @@ import (
 )
 
 // Version is the current SDK version.
-const Version = "0.2.8"
+const Version = "0.2.9"
 
 // Config holds database configuration options.
 type Config struct {
@@ -386,15 +386,9 @@ func (db *Database) Execute(sql string) (*SQLQueryResult, error) {
 		return nil, ErrClosed
 	}
 
-	// For now, provide a stub implementation
-	// Full SQL support requires backend implementation
-	result := &SQLQueryResult{
-		Rows:         make([]map[string]interface{}, 0),
-		Columns:      make([]string, 0),
-		RowsAffected: 0,
-	}
-
-	return result, nil
+	// Execute SQL using client-side SQL engine (like Python SDK)
+	engine := NewSQLEngine(db.client)
+	return engine.Execute(sql)
 }
 
 // Close closes the database connection.

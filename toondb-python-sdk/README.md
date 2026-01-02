@@ -164,37 +164,61 @@ for row in result.rows:
 # {'name': 'Alice', 'age': 31}
 ```
 
-### Complex Queries with JOIN
+### Complex Queries
 
 ```python
-# Create orders table
-db.execute_sql("""
-    CREATE TABLE orders (
-        id INTEGER PRIMARY KEY,
-        user_id INTEGER,
-        product TEXT,
-        amount REAL,
-        FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-""")
+# Aggregates
+result = db.execute_sql("SELECT COUNT(*) as total FROM users")
+print(f"Total users: {result.rows[0]['total']}")
 
-# Insert orders
-db.execute_sql("INSERT INTO orders VALUES (1, 1, 'Laptop', 999.99)")
-db.execute_sql("INSERT INTO orders VALUES (2, 1, 'Mouse', 25.00)")
-db.execute_sql("INSERT INTO orders VALUES (3, 2, 'Keyboard', 75.00)")
+result = db.execute_sql("SELECT AVG(age) as avg_age FROM users")
+print(f"Average age: {result.rows[0]['avg_age']}")
 
-# JOIN query
+# Complex WHERE with AND/OR
 result = db.execute_sql("""
-    SELECT users.name, orders.product, orders.amount
-    FROM users
-    JOIN orders ON users.id = orders.user_id
-    WHERE orders.amount > 50
-    ORDER BY orders.amount DESC
+    SELECT name, age FROM users
+    WHERE age > 25 AND (name = 'Alice' OR name = 'Bob')
+    ORDER BY age DESC
 """)
 
 for row in result.rows:
-    print(f"{row['name']} bought {row['product']} for ${row['amount']}")
+    print(f"{row['name']}: {row['age']} years old")
 ```
+
+**Note:** JOIN operations are not yet supported in the current version. They are planned for a future release.
+
+## High-Performance Scanning
+
+ToonDB provides `scan_batched()` for efficient large-scale scans with dramatically reduced FFI overhead.
+
+### Performance Comparison
+
+For 10,000 results with 500ns FFI overhead per call:
+- `scan()`: 10,000 FFI calls = **5ms overhead**
+- `scan_batched()`: 10 FFI calls = **5µs overhead (1000x faster!)**
+
+### Usage Example
+
+```python
+from toondb import Database
+
+with Database.open("./my_database") as db:
+    # Regular scan - fine for small datasets
+    for key, value in db.scan_prefix(b"user:"):
+        print(key, value)
+    
+    # Batched scan - optimized for large datasets
+    # Fetches 1000 results per FFI call instead of 1
+    for key, value in db.scan_batched(start=b"user:", end=b"user:\xff", batch_size=1000):
+        print(key, value)
+```
+
+### When to Use `scan_batched()`
+
+- ✅ Scanning thousands or millions of records
+- ✅ Data export or migration operations
+- ✅ Full table scans in analytics workloads
+- ✅ Batch processing pipelines
 
 **Output:**
 ```

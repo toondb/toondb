@@ -89,7 +89,7 @@ pip install toondb-client
 npm install @sushanth/toondb
 
 # Go
-go get github.com/toondb/toondb/toondb-go@v0.2.8
+go get github.com/toondb/toondb/toondb-go@v0.2.9
 
 # Rust - add to Cargo.toml
 # toondb = "0.2"

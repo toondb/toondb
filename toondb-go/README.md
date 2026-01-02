@@ -22,12 +22,17 @@ The official Go client SDK for **ToonDB** — a high-performance embedded docume
 ## Installation
 
 ```bash
-go get github.com/toondb/toondb/toondb-go@v0.2.8
+go get github.com/toondb/toondb/toondb-go@v0.2.9
 ```
 
 **Requirements:**
 - Go 1.21+
 - ToonDB server binary (automatically managed in embedded mode)
+
+**Batteries Included (v0.2.9+):**
+- ✅ Pre-built binaries bundled for Linux x86_64, macOS ARM64, and Windows x64
+- ✅ No manual binary installation required for released versions
+- ✅ Development builds fall back to `TOONDB_SERVER_PATH` or system PATH
 
 ## CLI Tools
 

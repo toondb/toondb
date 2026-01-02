@@ -704,7 +704,7 @@ class Database:
         self._lib = _FFI.get_lib()
     
     @classmethod
-    def open(cls, path: str) -> "Database":
+    def open(cls, path: str, config: Optional[dict] = None) -> "Database":
         """
         Open a database at the given path.
         
@@ -712,10 +712,27 @@ class Database:
         
         Args:
             path: Path to the database directory.
+            config: Optional configuration dictionary with keys:
+                - create_if_missing (bool): Create if missing (default: True)
+                - wal_enabled (bool): Enable WAL (default: True)
+                - sync_mode (str): 'full', 'normal', or 'off' (default: 'normal')
+                - memtable_size_bytes (int): Memtable size (default: 64MB)
             
         Returns:
             Database instance.
+            
+        Note:
+            The config parameter is currently accepted but not yet fully 
+            implemented in v0.2.8. Future versions will apply these settings.
         """
+        if config is not None:
+            warnings.warn(
+                "Database.open() config parameter is not yet fully implemented in v0.2.8. "
+                "Configuration options will be supported in future versions.",
+                FutureWarning,
+                stacklevel=2
+            )
+        
         lib = _FFI.get_lib()
         path_bytes = path.encode("utf-8")
         handle = lib.toondb_open(path_bytes)

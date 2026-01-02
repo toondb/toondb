@@ -546,6 +546,34 @@ jobs:
           go-version: '1.22'
           cache-dependency-path: toondb-go/go.sum
 
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binaries-*
+          path: binaries/
+          merge-multiple: true
+
+      - name: Bundle binaries into Go SDK
+        run: |
+          # Create bin directory structure matching server.go expectations
+          mkdir -p toondb-go/bin
+          
+          # Copy binaries for each platform (using target triple format)
+          for target in x86_64-unknown-linux-gnu aarch64-apple-darwin x86_64-pc-windows-msvc; do
+            if [ -d "binaries/$target" ]; then
+              mkdir -p "toondb-go/bin/$target"
+              cp -r binaries/$target/* "toondb-go/bin/$target/"
+              
+              # Make executables on non-Windows
+              if [ "$target" != "x86_64-pc-windows-msvc" ]; then
+                chmod +x toondb-go/bin/$target/*
+              fi
+            fi
+          done
+          
+          echo "=== Go SDK binary structure ==="
+          find toondb-go/bin -type f
+
       - name: Update Go SDK version
         run: |
           cd toondb-go
@@ -558,7 +586,7 @@ jobs:
           go build -v ./...
           go test -v ./...
 
-      - name: Commit version change and create tag
+      - name: Commit bundled binaries and version change
         if: ${{ inputs.dry_run != true }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -569,28 +597,35 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Commit version change if there are changes
-          if ! git diff --quiet toondb-go/database.go; then
-            git add toondb-go/database.go
-            git commit -m "chore(go): bump version to $VERSION"
-            git push origin HEAD
-          fi
+          # Add bundled binaries and version change
+          git add toondb-go/bin/
+          git add toondb-go/database.go
+          git commit -m "chore(go): bump version to $VERSION and bundle binaries" || echo "No changes to commit"
+          git push origin HEAD
           
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "Tag $TAG already exists, skipping..."
           else
             echo "Creating tag: $TAG"
-            git tag -a "$TAG" -m "Release toondb-go $VERSION"
+            git tag -a "$TAG" -m "Release toondb-go $VERSION
+
+Bundled binaries for:
+- Linux x86_64
+- macOS ARM64 (Apple Silicon)
+- Windows x64"
             git push origin "$TAG"
           fi
           
           echo "Go module released: github.com/toondb/toondb/toondb-go@$VERSION"
+          echo "✅ Binaries included - 'Batteries Included' mode active!"
 
       - name: Verify Go module (dry run)
         if: ${{ inputs.dry_run == true }}
         run: |
           echo "🔍 Dry run - would create tag: toondb-go/v${{ inputs.version }}"
           echo "Install command would be: go get github.com/toondb/toondb/toondb-go@v${{ inputs.version }}"
+          echo "Bundled binaries would be included in:"
+          find toondb-go/bin -type f
 
   # ===========================================================================
   # Create GitHub Release with all artifacts
