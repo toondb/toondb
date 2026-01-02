@@ -164,16 +164,24 @@ from toondb import VectorIndex
 import numpy as np
 
 # Create HNSW index
-index = VectorIndex(dimension=384)
+index = VectorIndex(
+    path="./vectors",
+    dimension=384,
+    metric="cosine"
+)
 
 # Add vectors
 embeddings = np.random.randn(1000, 384).astype(np.float32)
-index.bulk_add(embeddings, ids=list(range(1000)))
+for i, embedding in enumerate(embeddings):
+    index.add(str(i), embedding.tolist())
+
+# Build the index
+index.build()
 
 # Search
 query = np.random.randn(384).astype(np.float32)
-results = index.search(query, k=10)
-print(results)  # [(id, distance), ...]
+results = index.search(query.tolist(), k=10)
+print(results)  # [{'id': '1', 'distance': 0.23}, ...]
 ```
 
 #### Node.js / TypeScript
@@ -181,15 +189,20 @@ print(results)  # [(id, distance), ...]
 ```typescript
 import { VectorIndex } from '@sushanth/toondb';
 
-const index = new VectorIndex({ dimension: 384 });
+// Instantiate VectorIndex with path and config
+const index = new VectorIndex('./vectors', {
+  dimension: 384,
+  metric: 'cosine'
+});
 
-// Add vectors
+// Add vectors and build index
 await index.add('doc1', embedding1);
 await index.add('doc2', embedding2);
+await index.build();
 
 // Search
 const results = await index.search(queryEmbedding, 10);
-console.log(results);  // [{ id, distance }, ...]
+console.log(results);  // [{ id: 'doc1', distance: 0.23 }, ...]
 ```
 
 ### SDK Feature Matrix
@@ -198,10 +211,11 @@ console.log(results);  // [{ id, distance }, ...]
 |---------|--------|---------|-----|------|
 | Basic KV | ✅ | ✅ | ✅ | ✅ |
 | Transactions | ✅ | ✅ | ✅ | ✅ |
+| SQL Operations | ✅ | ✅ | ✅ | ✅ |
 | Vector Search | ✅ | ✅ | ✅ | ✅ |
 | Path API | ✅ | ✅ | ✅ | ✅ |
-| Bulk Operations | ✅ | ⏳ | ⏳ | ✅ |
-| IPC Mode | ✅ | ⏳ | ⏳ | ✅ |
+| Prefix Scanning | ✅ | ✅ | ✅ | ✅ |
+| Query Builder | ✅ | ✅ | ✅ | ✅ |
 
 ---
 
