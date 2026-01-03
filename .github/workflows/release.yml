@@ -593,16 +593,34 @@ jobs:
         run: |
           VERSION="v${{ inputs.version }}"
           TAG="toondb-go/$VERSION"
+          BRANCH="release/go-$VERSION"
           
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
+          # Create and switch to release branch
+          git checkout -b "$BRANCH"
+          
           # Add bundled binaries and version change
           git add toondb-go/bin/
           git add toondb-go/database.go
-          git commit -m "chore(go): bump version to $VERSION and bundle binaries" || echo "No changes to commit"
-          git push origin HEAD
           
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore(go): bump version to $VERSION and bundle binaries"
+            git push origin "$BRANCH"
+            
+            # Create pull request
+            gh pr create \
+              --title "Release Go SDK $VERSION" \
+              --body "Automated release for toondb-go $VERSION with bundled binaries for all platforms." \
+              --base main \
+              --head "$BRANCH" \
+              || echo "PR may already exist"
+          fi
+          
+          # Create tag pointing to the release branch
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "Tag $TAG already exists, skipping..."
           else
@@ -613,6 +631,7 @@ jobs:
           
           echo "Go module released: github.com/toondb/toondb/toondb-go@$VERSION"
           echo "✅ Binaries included - 'Batteries Included' mode active!"
+          echo "📝 Pull request created for branch: $BRANCH"
 
       - name: Verify Go module (dry run)
         if: ${{ inputs.dry_run == true }}
