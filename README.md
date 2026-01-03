@@ -675,6 +675,81 @@ Where:
 
 ## 📈 Benchmarks
 
+> **Benchmark Date**: January 2026 | **Hardware**: Apple M-series (ARM64) | **Embeddings**: Azure OpenAI text-embedding-3-small (1536 dimensions)
+
+### Real-World Vector Search Performance
+
+We benchmarked ToonDB's HNSW index against ChromaDB and LanceDB using **real embeddings from Azure OpenAI** (not synthetic vectors). This provides realistic performance numbers for production RAG applications.
+
+#### Test Setup
+- **Corpus**: 1,000 documents (generated technical content)
+- **Queries**: 100 search queries
+- **Embedding Model**: Azure OpenAI `text-embedding-3-small` (1536 dimensions)
+- **Distance Metric**: Cosine similarity
+- **Ground Truth**: Brute-force exact search for recall calculation
+
+#### Vector Database Comparison
+
+| Database | Insert 1K Vectors | Insert Rate | Search p50 | Search p99 |
+|----------|-------------------|-------------|------------|------------|
+| **ToonDB** | 133.3ms | 7,502 vec/s | **0.45ms** ✅ | **0.61ms** ✅ |
+| ChromaDB | 308.9ms | 3,237 vec/s | 1.37ms | 1.73ms |
+| LanceDB | 55.2ms | 18,106 vec/s | 9.86ms | 21.63ms |
+
+**Key Findings**:
+- **ToonDB search is 3x faster than ChromaDB** (0.45ms vs 1.37ms p50)
+- **ToonDB search is 22x faster than LanceDB** (0.45ms vs 9.86ms p50)
+- LanceDB has fastest inserts (columnar-optimized), but slowest search
+- All databases maintain sub-25ms p99 latencies
+
+#### End-to-End RAG Bottleneck Analysis
+
+| Component | Time | % of Total |
+|-----------|------|------------|
+| **Embedding API (Azure OpenAI)** | 59.5s | **99.7%** |
+| ToonDB Insert (1K vectors) | 0.133s | 0.2% |
+| ToonDB Search (100 queries) | 0.046s | 0.1% |
+
+> 🎯 **The embedding API is 333x slower than ToonDB operations.** In production RAG systems, the database is never the bottleneck—your LLM API calls are.
+
+---
+
+### Recall Benchmarks (Search Quality)
+
+ToonDB's HNSW index achieves **>98% recall@10** with sub-millisecond latency using real Azure OpenAI embeddings.
+
+#### Test Methodology
+- Ground truth computed via brute-force cosine similarity
+- Recall@k = (# correct results in top-k) / k
+- Tested across multiple HNSW configurations
+
+#### Results by HNSW Configuration
+
+| Configuration | Search (ms) | R@1 | R@5 | R@10 | R@20 | R@50 |
+|---------------|-------------|-----|-----|------|------|------|
+| **M=8, ef_c=50** | **0.42** | 0.990 | **0.994** | **0.991** | 0.994 | 0.991 |
+| M=16, ef_c=100 | 0.47 | 0.980 | 0.986 | 0.982 | 0.984 | 0.986 |
+| M=16, ef_c=200 | 0.44 | 0.970 | 0.984 | 0.988 | 0.990 | 0.986 |
+| M=32, ef_c=200 | 0.47 | 0.980 | 0.982 | 0.981 | 0.984 | 0.985 |
+| M=32, ef_c=400 | 0.52 | 0.990 | 0.986 | 0.983 | 0.979 | 0.981 |
+
+**Key Insights**:
+- All configurations achieve **>98% recall@10** with real embeddings
+- **Best recall**: 99.1% @ 0.42ms (M=8, ef_c=50)
+- **Recommended for RAG**: M=16, ef_c=100 (balanced speed + quality)
+- Smaller `M` values work well for text embeddings due to natural clustering
+
+#### Recommended HNSW Settings
+
+| Use Case | M | ef_construction | Expected Recall@10 | Latency |
+|----------|---|-----------------|-------------------|---------|
+| **Real-time RAG** | 8 | 50 | ~99% | <0.5ms |
+| **Balanced** | 16 | 100 | ~98% | <0.5ms |
+| **Maximum Quality** | 16 | 200 | ~99% | <0.5ms |
+| **Large-scale (10M+)** | 32 | 200 | ~97% | <1ms |
+
+---
+
 ### Token Efficiency (TOON vs JSON)
 
 | Dataset | JSON Tokens | TOON Tokens | Reduction |
@@ -683,35 +758,56 @@ Where:
 | Events (1000 rows, 3 cols) | 18,200 | 7,650 | **58.0%** |
 | Products (500 rows, 8 cols) | 15,600 | 5,980 | **61.7%** |
 
-### Vector Search (HNSW)
+---
 
-| Vectors | Dimensions | QPS (ef=50) | Recall@10 |
-|---------|------------|-------------|-----------|
-| 100K | 384 | 12,400 | 0.98 |
-| 1M | 384 | 8,200 | 0.97 |
-| 10M | 384 | 4,100 | 0.96 |
-
-### I/O Reduction (Columnar)
+### I/O Reduction (Columnar Storage)
 
 | Query | Row Store | ToonDB Columnar | Reduction |
-|-------|-----------|-----------------|-----------|
+|-------|-----------|-----------------|-----------| 
 | SELECT 2 of 10 cols | 100% | 20% | **80%** |
 | SELECT 1 of 20 cols | 100% | 5% | **95%** |
 
-### Performance (vs SQLite)
+---
 
-> **Benchmark Methodology**: This benchmark compares ToonDB to SQLite under similar durability settings (`WAL` mode, `synchronous=NORMAL`), both in Rust and Python. Results depend on hardware, build flags, dataset size, and workload patterns.
+### KV Performance (vs SQLite)
 
-Benchmarks running on 100k records (Apple M1/M2 class hardware):
+> **Methodology**: ToonDB vs SQLite under similar durability settings (`WAL` mode, `synchronous=NORMAL`). Results on Apple M-series hardware, 100k records.
 
 | Database | Mode | Insert Rate | Notes |
 |----------|------|-------------|-------|
 | **SQLite** | File (WAL) | ~1.16M ops/sec | Industry standard |
-| **ToonDB** | Embedded (WAL) | ~760k ops/sec | Group commit disabled for sequential |
-| **ToonDB** | put_raw | ~1.30M ops/sec | Direct storage layer bypass |
-| **ToonDB** | insert_row_slice | ~1.29M ops/sec | Zero-allocation row API |
+| **ToonDB** | Embedded (WAL) | ~760k ops/sec | Group commit disabled |
+| **ToonDB** | put_raw | ~1.30M ops/sec | Direct storage layer |
+| **ToonDB** | insert_row_slice | ~1.29M ops/sec | Zero-allocation API |
 
-> **Note**: Performance varies by workload. ToonDB excels in LLM context assembly scenarios (token-efficient output, vector search, context budget management). SQLite remains the gold standard for general-purpose relational workloads. See [Before Heavy Production Use](#️-before-heavy-production-use) for current limitations.
+---
+
+### Running Benchmarks Yourself
+
+```bash
+# Install Python 3.12 (recommended for ChromaDB compatibility)
+brew install python@3.12
+python3.12 -m venv .venv312
+source .venv312/bin/activate
+
+# Install dependencies
+pip install chromadb lancedb python-dotenv requests numpy
+pip install -e toondb-python-sdk/
+
+# Build ToonDB release library
+cargo build --release
+
+# Run real embedding benchmark (requires Azure OpenAI credentials in .env)
+TOONDB_LIB_PATH=target/release python3 benchmarks/real_embedding_benchmark.py
+
+# Run recall benchmark
+TOONDB_LIB_PATH=target/release python3 benchmarks/recall_benchmark.py
+
+# Run Rust benchmarks (ToonDB vs SQLite)
+cargo run -p benchmarks --release
+```
+
+> **Note**: Performance varies by workload. ToonDB excels in LLM context assembly scenarios (token-efficient output, vector search, context budget management). SQLite remains the gold standard for general-purpose relational workloads.
 
 ---
 

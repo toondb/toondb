@@ -42,7 +42,7 @@ toondb-python-sdk/src/toondb/_bin/
 /scripts/
 .venv
 .pytest_cache
-
+.venv312/
 
 # macOS
 .DS_Store

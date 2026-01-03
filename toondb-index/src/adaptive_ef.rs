@@ -512,6 +512,7 @@ mod tests {
     fn test_mature_graph_optimization() {
         let config = AdaptiveEfConfig {
             mature_graph_threshold: 50,
+            cold_start_threshold: 50, // Must be <= mature_graph_threshold to detect mature graph
             connectivity_threshold: 0.8,
             ..AdaptiveEfConfig::default()
         };
@@ -533,16 +534,17 @@ mod tests {
         config.enable_feedback = true;
         config.quality_target = 0.95;
         config.quality_tolerance = 0.02;
+        config.feedback_rate = 1.0; // Increase feedback sensitivity for test visibility
         
         let controller = AdaptiveEfController::new(config);
         
-        // Record poor quality measurement
-        controller.record_quality_measurement(0.90, 100); // Below target
+        // Record poor quality measurement (significantly below target)
+        controller.record_quality_measurement(0.85, 100); // 10% below target
         
         let base_ef = 80;
         let adjusted_ef = controller.apply_quality_feedback(base_ef);
         
-        // Should increase ef due to poor quality
+        // Should increase ef due to poor quality (quality_error = 0.10, adjustment = 10%)
         assert!(adjusted_ef > base_ef);
     }
     

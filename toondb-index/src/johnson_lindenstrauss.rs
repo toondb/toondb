@@ -383,11 +383,13 @@ mod tests {
     
     #[test]
     fn test_projected_vectors() {
-        let matrix = Arc::new(ProjectionMatrix::new(4, 2));
+        // Must use DEFAULT_PROJECTION_DIM (32) as target dimension for ProjectedVectors
+        let original_dim = 64;
+        let matrix = Arc::new(ProjectionMatrix::new(original_dim, DEFAULT_PROJECTION_DIM));
         let mut proj_vecs = ProjectedVectors::new(matrix);
         
-        let vector1 = vec![1.0, 0.0, 0.0, 0.0];
-        let vector2 = vec![0.0, 1.0, 0.0, 0.0];
+        let vector1: Vec<f32> = (0..original_dim).map(|i| (i as f32) * 0.1).collect();
+        let vector2: Vec<f32> = (0..original_dim).map(|i| (i as f32) * 0.2).collect();
         
         proj_vecs.add_projection(0, &vector1);
         proj_vecs.add_projection(1, &vector2);

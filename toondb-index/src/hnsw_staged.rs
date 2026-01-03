@@ -327,6 +327,10 @@ impl<'a> StagedBuilder<'a> {
                     }
                 }
             }
+            
+            // Intra-wave connectivity: connect wave nodes to each other
+            // This ensures wave nodes are reachable from the graph
+            self.connect_wave_nodes(wave_batch);
         }
         
         self.stats.wave_time_us = wave_start.elapsed().as_micros() as u64;
@@ -388,11 +392,20 @@ impl<'a> StagedBuilder<'a> {
             return Ok((false, backedges));
         }
         
-        // Create quantized vector
-        let quantized = QuantizedVector::from_f32(
-            ndarray::Array1::from_vec(vector.to_vec()),
-            self.config.precision,
-        );
+        // Create quantized vector - normalize for cosine metric when configured
+        let should_normalize = matches!(self.index.config.metric, DistanceMetric::Cosine)
+            && self.index.config.rng_optimization.normalize_at_ingest;
+        let quantized = if should_normalize {
+            QuantizedVector::from_f32_normalized(
+                ndarray::Array1::from_vec(vector.to_vec()),
+                self.config.precision,
+            )
+        } else {
+            QuantizedVector::from_f32(
+                ndarray::Array1::from_vec(vector.to_vec()),
+                self.config.precision,
+            )
+        };
         
         // Generate random layer
         let layer = self.generate_random_layer();
@@ -581,6 +594,46 @@ impl<'a> StagedBuilder<'a> {
         (applied, failed)
     }
     
+    /// Connect wave nodes to each other for better intra-wave connectivity
+    /// 
+    /// After a wave is processed, wave nodes only have forward edges to scaffold/previous waves.
+    /// This method adds mutual connections between wave nodes so they're reachable.
+    fn connect_wave_nodes(&self, wave_batch: &[(u128, Vec<f32>)]) {
+        // For each wave node, find its nearest wave neighbors and connect
+        let wave_ids: Vec<u128> = wave_batch.iter().map(|(id, _)| *id).collect();
+        
+        for (id, _) in wave_batch {
+            if let Some(node) = self.index.nodes.get(id) {
+                let node_vec = &node.vector;
+                
+                // Find closest wave neighbors
+                let mut wave_distances: Vec<(u128, f32)> = wave_ids
+                    .iter()
+                    .filter(|&wid| wid != id)
+                    .filter_map(|&wid| {
+                        self.index.nodes.get(&wid).map(|wnode| {
+                            (wid, self.calculate_distance(node_vec, &wnode.vector))
+                        })
+                    })
+                    .collect();
+                
+                wave_distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+                
+                // Add top few wave neighbors (at least 4 for connectivity)
+                let num_to_add = 4.min(wave_distances.len());
+                let max_connections = self.index.config.max_connections_layer0;
+                
+                let mut layer_data = node.layers[0].write();
+                for (wid, _) in wave_distances.into_iter().take(num_to_add) {
+                    if !layer_data.neighbors.contains(&wid) && layer_data.neighbors.len() < max_connections {
+                        layer_data.neighbors.push(wid);
+                        layer_data.version += 1;
+                    }
+                }
+            }
+        }
+    }
+    
     // ========================================================================
     // Helper Methods
     // ========================================================================
@@ -689,6 +742,8 @@ impl<'a> StagedBuilder<'a> {
         _query: &QuantizedVector,
     ) -> Vec<SearchCandidate> {
         const ALPHA: f32 = 1.2; // RNG pruning factor
+        // Ensure at least half the target neighbors for connectivity
+        const MIN_NEIGHBORS_RATIO: f32 = 0.5;
         
         if candidates.len() <= max_neighbors {
             return candidates.to_vec();
@@ -698,8 +753,18 @@ impl<'a> StagedBuilder<'a> {
         sorted.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap());
         
         let mut result = Vec::with_capacity(max_neighbors);
+        let min_neighbors = ((max_neighbors as f32) * MIN_NEIGHBORS_RATIO) as usize;
         
         for candidate in sorted {
+            // First min_neighbors are added without pruning for connectivity
+            if result.len() < min_neighbors {
+                result.push(candidate);
+                if result.len() >= max_neighbors {
+                    break;
+                }
+                continue;
+            }
+            
             // Check if candidate is shadowed by any already-selected neighbor
             let is_shadowed = result.iter().any(|selected: &SearchCandidate| {
                 if let (Some(c_node), Some(s_node)) = (
@@ -849,10 +914,13 @@ mod tests {
             })
             .collect();
         
-        let staged_config = StagedConfig::default();
-        let (inserted, _) = index.insert_batch_staged(&batch, staged_config).unwrap();
+        let staged_config = StagedConfig {
+            skip_repair_passes: false,  // Enable repair for better connectivity
+            ..StagedConfig::default()
+        };
+        let (inserted, _stats) = index.insert_batch_staged(&batch, staged_config).unwrap();
         assert_eq!(inserted, 200);
-        
+
         // Test self-retrieval
         let mut failures = 0;
         for (id, vec) in &batch {

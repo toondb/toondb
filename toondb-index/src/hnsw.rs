@@ -4062,8 +4062,16 @@ impl HnswIndex {
 
         // Fallback to standard HNSW search
         // Search from top layer down to layer 0
+        // Use appropriate distance function based on whether vectors are normalized
+        let use_normalized = matches!(self.config.metric, DistanceMetric::Cosine) 
+            && self.config.rng_optimization.normalize_at_ingest;
+        let initial_distance = if use_normalized {
+            self.calculate_distance_normalized(&query_quantized, &ep_node.vector)
+        } else {
+            self.calculate_distance(&query_quantized, &ep_node.vector)
+        };
         let mut curr_nearest = vec![SearchCandidate {
-            distance: self.calculate_distance_normalized(&query_quantized, &ep_node.vector),
+            distance: initial_distance,
             id: ep_id,
         }];
 

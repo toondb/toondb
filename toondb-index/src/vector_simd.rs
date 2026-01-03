@@ -47,9 +47,15 @@ pub fn dot_product_f32(a: &[f32], b: &[f32]) -> f32 {
         unsafe { dot_product_sse(a, b) }
     }
 
+    #[cfg(target_arch = "aarch64")]
+    {
+        dot_product_neon(a, b)
+    }
+
     #[cfg(not(any(
         all(target_arch = "x86_64", target_feature = "avx2"),
-        all(target_arch = "x86_64", target_feature = "sse4.1")
+        all(target_arch = "x86_64", target_feature = "sse4.1"),
+        target_arch = "aarch64"
     )))]
     {
         dot_product_scalar(a, b)
@@ -146,9 +152,15 @@ pub fn l2_squared_f32(a: &[f32], b: &[f32]) -> f32 {
         unsafe { l2_squared_sse(a, b) }
     }
 
+    #[cfg(target_arch = "aarch64")]
+    {
+        l2_squared_neon(a, b)
+    }
+
     #[cfg(not(any(
         all(target_arch = "x86_64", target_feature = "avx2"),
-        all(target_arch = "x86_64", target_feature = "sse4.1")
+        all(target_arch = "x86_64", target_feature = "sse4.1"),
+        target_arch = "aarch64"
     )))]
     {
         a.iter().zip(b.iter()).map(|(x, y)| (x - y).powi(2)).sum()
@@ -232,9 +244,15 @@ pub fn l2_norm_f32(a: &[f32]) -> f32 {
         unsafe { l2_norm_sse(a) }
     }
 
+    #[cfg(target_arch = "aarch64")]
+    {
+        l2_norm_neon(a)
+    }
+
     #[cfg(not(any(
         all(target_arch = "x86_64", target_feature = "avx2"),
-        all(target_arch = "x86_64", target_feature = "sse4.1")
+        all(target_arch = "x86_64", target_feature = "sse4.1"),
+        target_arch = "aarch64"
     )))]
     {
         a.iter().map(|x| x * x).sum::<f32>().sqrt()

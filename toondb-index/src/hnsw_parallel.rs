@@ -341,7 +341,67 @@ impl ParallelHnswBuilder {
         // Phase 2: Consolidate backedges (parallel by target)
         self.phase2_consolidate_backedges(&ctx);
         
+        // Phase 3: Intra-batch connectivity
+        // Connect batch nodes to each other for better reachability
+        self.phase3_intra_batch_connectivity(&nodes_with_layers);
+        
         ctx
+    }
+    
+    /// Phase 3: Connect batch nodes to each other
+    /// 
+    /// Nodes in the same batch can't find each other during phase 1 because
+    /// they're inserted in parallel. This phase adds mutual connections.
+    fn phase3_intra_batch_connectivity(&self, nodes: &[(NodeId, Arc<HnswNode>, LayerId)]) {
+        if nodes.len() < 2 {
+            return;
+        }
+        
+        // For each node, find and add its nearest batch neighbors
+        nodes.par_iter().for_each(|(id, node, max_layer)| {
+            // Find closest batch nodes
+            let mut batch_distances: Vec<(NodeId, f32)> = nodes
+                .iter()
+                .filter(|(other_id, _, _)| other_id != id)
+                .map(|(other_id, other_node, _)| {
+                    (*other_id, self.distance(&node.vector, &other_node.vector))
+                })
+                .collect();
+            
+            batch_distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            
+            // Add top few batch neighbors at layer 0
+            let num_to_add = 16.min(batch_distances.len());  // More connections for better graph
+            let m0 = self.config.m0;
+            
+            let mut layer_guard = node.layers[0].write();
+            for (bid, _) in batch_distances.into_iter().take(num_to_add) {
+                if !layer_guard.neighbors.contains(&bid) && layer_guard.neighbors.len() < m0 {
+                    layer_guard.neighbors.push(bid);
+                }
+            }
+            
+            // Also add to higher layers if the node has them
+            for layer in 1..=*max_layer {
+                let m = self.config.m;
+                let mut layer_guard = node.layers[layer].write();
+                
+                // Just add closest batch node at higher layers
+                let batch_at_layer: Vec<(NodeId, f32)> = nodes
+                    .iter()
+                    .filter(|(other_id, _, other_layer)| other_id != id && *other_layer >= layer)
+                    .map(|(other_id, other_node, _)| {
+                        (*other_id, self.distance(&node.vector, &other_node.vector))
+                    })
+                    .collect();
+                
+                if let Some((closest, _)) = batch_at_layer.iter().min_by(|a, b| a.1.partial_cmp(&b.1).unwrap()) {
+                    if !layer_guard.neighbors.contains(closest) && layer_guard.neighbors.len() < m {
+                        layer_guard.neighbors.push(*closest);
+                    }
+                }
+            }
+        });
     }
     
     /// Phase 1: Build forward edges

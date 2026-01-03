@@ -126,3 +126,17 @@ panic = "abort"
 
 [profile.bench]
 inherits = "release"
+
+# Optimize dev builds for vector operations (HNSW, SIMD, etc.)
+# Without this, debug tests for 10K vectors take 3+ minutes instead of 3 seconds
+[profile.dev]
+opt-level = 1  # Basic optimization for reasonable test speed
+
+# Optimize dependencies even in dev mode
+[profile.dev.package."*"]
+opt-level = 3
+
+# Test profile with optimizations for compute-heavy HNSW tests
+[profile.test]
+opt-level = 2  # Good balance between speed and debug info
+debug = true   # Keep debug symbols for stack traces

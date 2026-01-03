@@ -67,6 +67,7 @@ tempfile = { workspace = true }
 proptest = "1.5"
 criterion = { version = "0.5", features = ["html_reports"] }
 rand_chacha = "0.3"
+ndarray = { workspace = true }  # For benchmarks to match library version
 
 [[bin]]
 name = "bulk-load"

@@ -338,6 +338,7 @@ describe('ToonDB SDK Comprehensive Tests', () => {
         beginTransaction: jest.fn().mockResolvedValue(BigInt(1)),
         commitTransaction: jest.fn().mockResolvedValue(undefined),
         abortTransaction: jest.fn(),
+        checkpoint: jest.fn().mockResolvedValue(undefined),
         close: jest.fn(),
       };
       (IpcClient.connect as jest.Mock) = jest.fn().mockResolvedValue(mockClient);
