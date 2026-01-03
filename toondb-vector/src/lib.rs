@@ -52,6 +52,13 @@ pub mod simd_hadamard; // SIMD-Accelerated Walsh-Hadamard Transform
 pub mod async_lsm; // Non-Blocking LSM Sealing with WAL durability
 pub mod lazy_segment; // Lazy BPS/RDF/Rerank Construction (build-on-first-query)
 
+// Hybrid search and multi-vector modules (Task 4-6)
+pub mod bm25; // BM25 scoring for lexical search
+pub mod inverted_index; // Inverted index for keyword search
+pub mod hybrid; // Hybrid search with RRF fusion
+pub mod multi_vector; // Multi-vector documents with aggregation
+pub mod tombstones; // Tombstone-based logical deletion
+
 // Re-export main types
 pub use config::EngineConfig;
 pub use error::{Error, Result};
@@ -67,3 +74,13 @@ pub use dispatch::{
     CpuFeatures, SimdLevel,
     cpu_features, simd_level, simd_available, dispatch_info,
 };
+
+// Re-export hybrid search types
+pub use bm25::{BM25Config, BM25Scorer, BM25Stats, tokenize, tokenize_minimal};
+pub use inverted_index::{InvertedIndex, InvertedIndexBuilder, PostingList, Posting};
+pub use hybrid::{RRFConfig, RRFFusion, HybridSearchEngine, SearchResult, ComponentScores};
+pub use multi_vector::{
+    AggregationMethod, DocumentScore, MultiVectorMapping, MultiVectorAggregator,
+    MultiVectorDocument, MultiVectorConfig, MultiVectorError,
+};
+pub use tombstones::{TombstoneManager, TombstoneFilter, TombstoneError};
