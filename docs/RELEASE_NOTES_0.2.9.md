@@ -63,7 +63,7 @@
 ### Go SDK
 - Full SQL engine with DDL/DML operations
 - SQL transaction support
-- WHERE clause with operators (=, !=, <, >, <=, >=, LIKE)
+- WHERE clause with operators (`=`, `!=`, `<`, `>`, `<=`, `>=`, `LIKE`)
 - ORDER BY, LIMIT, OFFSET support
 - Complete feature parity with Python/JS SDKs
 

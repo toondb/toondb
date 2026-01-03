@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: "Vangala"
+    given-names: "Sushanth Reddy"
+    email: "sushanth53@gmail.com"
+title: "ToonDB"
+abstract: "The LLM-Native Database: Token-optimized context, columnar storage, built-in vector search, and embedded-first design."
+keywords:
+  - database
+  - llm
+  - vector-search
+  - embeddings
+  - rag
+  - rust
+  - hnsw
+  - columnar-storage
+license: Apache-2.0
+repository-code: "https://github.com/toondb/toondb"
+url: "https://docs.toondb.dev"
+type: software
+date-released: 2026-01-01
