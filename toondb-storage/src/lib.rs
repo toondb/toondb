@@ -229,7 +229,7 @@ pub use packed_row::{
 pub use backend::{LocalFsBackend, ObjectMetadata, StorageBackend};
 pub use backup::{BackupManager, BackupMetadata};
 pub use block_checksum::{
-    BlockChecksumConfig, BlockChecksumStats, BlockType, BlockWriter, ChecksummedBlock,
+    BlockChecksumConfig, BlockChecksumStats, BlockType as BlockChecksumType, BlockWriter, ChecksummedBlock,
 };
 pub use bloom::{BlockedBloomFilter, BloomFilter, LevelAdaptiveFPR, UnifiedBloomFilter};
 pub use compression::{CompressionEngine, CompressionStats, StorageTier};
@@ -249,7 +249,41 @@ pub use validation::{SSTableValidator, validate_sstable_file};
 // Re-exports for durable storage
 pub use durable_storage::{ArenaMvccMemTable, DurableStorage, MvccMemTable, TransactionMode};
 
+// Super Version and Copy-on-Write Version Set (mm.md Task 1)
+pub mod version_set;
+pub mod concurrent_art;
+pub mod sstable;
+pub mod wal_segment;
+pub mod compaction_policy;
+pub mod optimized_scan;
+
 // Re-exports for new performance modules (Recommendations 1-9)
+pub use version_set::{
+    FileMetadata as VersionFileMetadata, ImmutableMemTable, ImmutableMemTableRef,
+    LevelMetadata, SuperVersion, SuperVersionHandle, VersionSet as CowVersionSet,
+};
+pub use concurrent_art::ConcurrentART;
+pub use sstable::{
+    BlockBuilder, BlockIterator, BlockHandle, BlockType,
+    FilterPolicy, BloomFilterPolicy, RibbonFilterPolicy, XorFilterPolicy, FilterReader,
+    SSTableFormat, Header, Footer, Section, SectionType,
+    SSTableBuilder, SSTableBuilderOptions, SSTableBuilderResult,
+    SSTable, TableMetadata, ReadOptions, BlockCache,
+};
+pub use wal_segment::{
+    WalSegmentManager, SegmentConfig, SegmentHeader, SegmentMetadata,
+    CheckpointRecord, SegmentStats, RecoveryIterator, WalEntry,
+};
+pub use compaction_policy::{
+    CompactionConfig, CompactionFile, CompactionJob, CompactionPicker,
+    CompactionPriority, CompactionReason, CompactionState, CompactionStats,
+    CompactionStrategy, LeveledCompactionPicker, RetentionConfig,
+    UniversalCompactionPicker, VersionPruner,
+};
+pub use optimized_scan::{
+    EntrySource, FileRange, LevelFiles, RangeScanner, ScanConfig, ScanStats,
+    TournamentTree, VersionedEntry,
+};
 pub use cow_btree::{BTreeEntry, BTreeSnapshot, CowBTree, Node, SearchResult};
 pub use epoch_mvcc::{
     CommitResult, EpochManager, EpochMvccStore, EpochSnapshot, EpochTransaction,

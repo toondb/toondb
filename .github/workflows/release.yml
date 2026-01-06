@@ -134,12 +134,14 @@ jobs:
             # Windows: skip toondb-server (uses Unix sockets)
             cargo build --release --target ${{ matrix.target }} \
               --bin toondb-bulk \
-              --bin toondb-grpc-server
+              --bin toondb-grpc-server \
+              --bin toondb-mcp
           else
             # Unix: build all binaries
             cargo build --release --target ${{ matrix.target }} \
               -p toondb-tools \
-              -p toondb-grpc
+              -p toondb-grpc \
+              -p toondb-mcp
           fi
 
       - name: Create artifact directory
@@ -152,6 +154,7 @@ jobs:
             # Binaries (no toondb-server on Windows - uses Unix sockets)
             cp target/${{ matrix.target }}/release/toondb-bulk.exe artifacts/${{ matrix.target }}/
             cp target/${{ matrix.target }}/release/toondb-grpc-server.exe artifacts/${{ matrix.target }}/
+            cp target/${{ matrix.target }}/release/toondb-mcp.exe artifacts/${{ matrix.target }}/
             # Shared libraries (DLLs)
             cp target/${{ matrix.target }}/release/toondb_storage.dll artifacts/${{ matrix.target }}/
             cp target/${{ matrix.target }}/release/toondb_index.dll artifacts/${{ matrix.target }}/
@@ -160,6 +163,7 @@ jobs:
             cp target/${{ matrix.target }}/release/toondb-bulk artifacts/${{ matrix.target }}/
             cp target/${{ matrix.target }}/release/toondb-server artifacts/${{ matrix.target }}/
             cp target/${{ matrix.target }}/release/toondb-grpc-server artifacts/${{ matrix.target }}/
+            cp target/${{ matrix.target }}/release/toondb-mcp artifacts/${{ matrix.target }}/
             # Shared libraries (.so or .dylib)
             cp target/${{ matrix.target }}/release/libtoondb_storage${{ matrix.lib_ext }} artifacts/${{ matrix.target }}/
             cp target/${{ matrix.target }}/release/libtoondb_index${{ matrix.lib_ext }} artifacts/${{ matrix.target }}/
@@ -230,6 +234,7 @@ jobs:
           publish_crate toondb-index
           publish_crate toondb-query
           publish_crate toondb-client  # Published as 'toondb' on crates.io
+          publish_crate toondb-mcp     # MCP server binary crate
 
   # ===========================================================================
   # Create GitHub Release with all artifacts

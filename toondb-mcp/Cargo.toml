@@ -5,6 +5,13 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Minimal MCP server for ToonDB - AI-native database"
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+readme = "README.md"
 
 [lib]
 name = "toondb_mcp"

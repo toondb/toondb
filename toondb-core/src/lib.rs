@@ -107,6 +107,7 @@ pub mod tbp; // TOON Binary Protocol for zero-copy wire format (mm.md Task 3.1)
 pub mod toon;
 pub mod toon_codec;
 pub mod toonfs_metadata;
+pub mod transaction_typestate; // Type-State Transaction API (compile-time safe transaction lifecycle)
 pub mod txn;
 pub mod version_chain; // Unified MVCC version chain trait
 pub mod vfs;
@@ -147,6 +148,10 @@ pub use txn::{
     AriesCheckpointData, AriesDirtyPageEntry, AriesTransactionEntry, IsolationLevel, Lsn, PageId,
     Transaction, TransactionManager, TxnId, TxnState, TxnStats, TxnWalEntry, TxnWrite,
     WalRecordType,
+};
+pub use transaction_typestate::{
+    Transaction as TypestateTransaction, Active, Committed, Aborted,
+    ReadOnly, ReadWrite, WriteOnly, TransactionStorage, TransactionMode,
 };
 pub use version_chain::{
     MvccVersionChain, MvccVersionChainMut, VersionMeta, VisibilityContext, WriteConflictDetection,
