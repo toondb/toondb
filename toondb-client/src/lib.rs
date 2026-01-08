@@ -66,12 +66,15 @@
 //!     .execute()?;
 //! ```
 
+pub mod atomic_memory;
 pub mod batch;
+pub mod checkpoint;
 pub mod column_access;
 pub mod connection;
 pub mod context_query;
 pub mod crud;
 pub mod error;
+pub mod format;
 pub mod graph;
 pub mod path_query;
 pub mod policy;
@@ -80,7 +83,10 @@ pub mod recovery;
 pub mod result;
 pub mod routing;
 pub mod schema;
+pub mod semantic_cache;
 pub mod storage;
+pub mod temporal_graph;
+pub mod trace;
 pub mod transaction;
 pub mod vectors;
 
@@ -125,11 +131,17 @@ pub use connection::EmbeddedConnection;
 pub use connection::{ConnectionConfig, DurableStats, RecoveryResult, SyncModeClient};
 pub use context_query::{ContextQueryBuilder, ContextQueryResult, SectionBuilder, SectionContent};
 pub use crud::{DeleteResult, InsertResult, RowBuilder, UpdateResult};
+pub use format::{CanonicalFormat, ContextFormat, FormatCapabilities, FormatConversionError, WireFormat};
 pub use path_query::PathQuery;
 pub use result::{ResultMetrics, ToonResult};
 pub use schema::{SchemaBuilder, TableDescription};
 pub use transaction::{ClientTransaction, IsolationLevel, SnapshotReader};
 pub use vectors::{SearchResult, VectorCollection};
+// Re-export new modules
+pub use atomic_memory::{AtomicMemoryWriter, AtomicWriteResult, MemoryOp, MemoryWriteBuilder};
+pub use checkpoint::{Checkpoint, CheckpointMeta, CheckpointStore, DefaultCheckpointStore, RunMetadata, RunStatus, WorkflowEvent};
+pub use trace::{TraceRun, TraceSpan, TraceStore, TraceValue, SpanKind, SpanStatusCode};
+pub use policy::{CompiledPolicySet, EvaluationResult, PolicyOutcome, PolicyRule};
 // Re-export deprecated GroupCommitBuffer with warning
 #[allow(deprecated)]
 pub use batch::{GroupCommitBuffer, GroupCommitConfig};

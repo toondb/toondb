@@ -17,9 +17,42 @@
 //! This module implements a unified hybrid query planner combining:
 //! - Vector similarity search (ANN)
 //! - Lexical search (BM25)
-//! - Metadata filtering
+//! - Metadata filtering (PRE-FILTER ONLY)
 //! - Score fusion (RRF)
 //! - Cross-encoder reranking
+//!
+//! ## CRITICAL INVARIANT: No Post-Filtering
+//!
+//! This module enforces a hard security invariant:
+//! 
+//! > **All filtering MUST occur during candidate generation, never after.**
+//!
+//! The `ExecutionStep::PostFilter` variant has been intentionally removed.
+//! This guarantees:
+//! 1. **Security by construction**: No leakage of filtered documents
+//! 2. **No wasted compute**: We never score disallowed documents
+//! 3. **Monotone property**: `result-set ⊆ allowed-set` (verifiable)
+//!
+//! ## Correct Pattern
+//!
+//! ```text
+//! FilterIR + AuthScope → AllowedSet (computed once)
+//!     ↓
+//! vector_search(query, AllowedSet) → filtered candidates
+//! bm25_search(query, AllowedSet)   → filtered candidates
+//!     ↓
+//! fusion(filtered_v, filtered_b)   → already correct!
+//!     ↓
+//! rerank, limit                    → final results
+//! ```
+//!
+//! ## Anti-Pattern (What We Prevent)
+//!
+//! ```text
+//! BAD: vector_search() → candidates → filter → too few/leaky
+//!      bm25_search()   → candidates → filter → inconsistent
+//!      fusion()        → filter at end → SECURITY RISK!
+//! ```
 //!
 //! ## Execution Plan
 //!
@@ -31,7 +64,7 @@
 //! │              ExecutionPlan              │
 //! │  ┌─────────┐ ┌─────────┐ ┌──────────┐  │
 //! │  │ Vector  │ │  BM25   │ │  Filter  │  │
-//! │  │ Search  │ │ Search  │ │ (Pre/Post)│  │
+//! │  │ Search  │ │ Search  │ │ (PRE-ONLY)│  │
 //! │  └────┬────┘ └────┬────┘ └────┬─────┘  │
 //! │       │           │           │        │
 //! │       └─────┬─────┘           │        │
@@ -359,15 +392,18 @@ pub enum ExecutionStep {
         weight: f32,
     },
     
-    /// Pre-filter (before retrieval)
+    /// Pre-filter (before retrieval) - REQUIRED for security
+    /// 
+    /// This is the ONLY allowed filter step. Filters are always applied
+    /// during candidate generation via AllowedSet, never after.
     PreFilter {
         filters: Vec<MetadataFilter>,
     },
     
-    /// Post-filter (after retrieval)
-    PostFilter {
-        filters: Vec<MetadataFilter>,
-    },
+    // NOTE: PostFilter has been REMOVED by design.
+    // The "no post-filtering" invariant is a hard security requirement.
+    // All filtering must happen via PreFilter -> AllowedSet -> candidate generation.
+    // See unified_fusion.rs for the correct pattern.
     
     /// Score fusion
     Fusion {
@@ -375,17 +411,42 @@ pub enum ExecutionStep {
         rrf_k: f32,
     },
     
-    /// Reranking
+    /// Reranking (does NOT filter, only re-orders)
     Rerank {
         model: String,
         top_n: usize,
     },
     
-    /// Limit results
+    /// Limit results (applied AFTER all filtering is complete)
     Limit {
         count: usize,
         min_score: Option<f32>,
     },
+    
+    /// Redaction transform (post-retrieval modification, NOT filtering)
+    /// 
+    /// Unlike filtering (which removes candidates), redaction transforms
+    /// the content of already-allowed documents. This preserves the
+    /// invariant: result-set ⊆ allowed-set.
+    Redact {
+        /// Fields to redact
+        fields: Vec<String>,
+        /// Redaction method
+        method: RedactionMethod,
+    },
+}
+
+/// Redaction methods for post-retrieval content transformation
+#[derive(Debug, Clone)]
+pub enum RedactionMethod {
+    /// Replace with a fixed string
+    Replace(String),
+    /// Mask with asterisks
+    Mask,
+    /// Remove the field entirely
+    Remove,
+    /// Hash the value
+    Hash,
 }
 
 // ============================================================================

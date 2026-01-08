@@ -11,10 +11,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_client(true)
         .out_dir(&out_dir)
         .compile_protos(
-            &["../proto/toondb.proto"],
-            &["../proto"],
+            &["proto/toondb.proto"],
+            &["proto"],
         )?;
     
-    println!("cargo:rerun-if-changed=../proto/toondb.proto");
+    println!("cargo:rerun-if-changed=proto/toondb.proto");
     Ok(())
 }

@@ -4,7 +4,14 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "ToonDB gRPC vector index service for cross-language clients"
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+description = "ToonDB gRPC services for cross-language clients (Thick Server / Thin Client architecture)"
+readme = "README.md"
 
 [dependencies]
 toondb-index = { version = "0.3.3", path = "../toondb-index" }
@@ -25,6 +32,13 @@ dashmap = { workspace = true }
 parking_lot = { workspace = true }
 thiserror = { workspace = true }
 clap = { version = "4.5", features = ["derive"] }
+
+# Additional dependencies for services
+serde = { workspace = true }
+serde_json = { workspace = true }
+regex = "1.10"
+uuid = { version = "1.0", features = ["v4"] }
+base64 = "0.22"
 
 [build-dependencies]
 tonic-build = "0.13"

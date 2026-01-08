@@ -12,9 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! ToonDB gRPC Vector Index Server
+//! ToonDB gRPC Server
 //!
-//! Starts a gRPC server for vector index operations.
+//! Starts a comprehensive gRPC server with all ToonDB services.
+//! This implements the "Thick Server / Thin Client" architecture where
+//! all business logic lives in Rust, enabling thin SDK wrappers.
+//!
+//! ## Services
+//!
+//! - VectorIndexService: HNSW vector operations
+//! - GraphService: Graph overlay for agent memory
+//! - PolicyService: Policy evaluation
+//! - ContextService: LLM context assembly
+//! - CollectionService: Collection management
+//! - NamespaceService: Multi-tenant namespaces
+//! - SemanticCacheService: Semantic caching
+//! - TraceService: Distributed tracing
+//! - CheckpointService: State snapshots
+//! - McpService: MCP tool routing
+//! - KvService: Key-value operations
 //!
 //! ## Usage
 //!
@@ -33,12 +49,24 @@ use clap::Parser;
 use tonic::transport::Server;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-use toondb_grpc::VectorIndexServer;
+use toondb_grpc::{
+    VectorIndexServer,
+    graph_server::GraphServer,
+    policy_server::PolicyServer,
+    context_server::ContextServer,
+    collection_server::CollectionServer,
+    namespace_server::NamespaceServer,
+    semantic_cache_server::SemanticCacheServer,
+    trace_server::TraceServer,
+    checkpoint_server::CheckpointServer,
+    mcp_server::McpServer,
+    kv_server::KvServer,
+};
 
-/// ToonDB gRPC Vector Index Server
+/// ToonDB gRPC Server
 #[derive(Parser, Debug)]
 #[command(name = "toondb-grpc-server")]
-#[command(about = "ToonDB gRPC server for vector index operations")]
+#[command(about = "ToonDB gRPC server - Thick Server / Thin Client architecture")]
 #[command(version)]
 struct Args {
     /// Host address to bind to
@@ -71,7 +99,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
     
     let addr = format!("{}:{}", args.host, args.port).parse()?;
-    let server = VectorIndexServer::new();
+    
+    // Create all service instances
+    let vector_server = VectorIndexServer::new();
+    let graph_server = GraphServer::new();
+    let policy_server = PolicyServer::new();
+    let context_server = ContextServer::new();
+    let collection_server = CollectionServer::new();
+    let namespace_server = NamespaceServer::new();
+    let semantic_cache_server = SemanticCacheServer::new();
+    let trace_server = TraceServer::new();
+    let checkpoint_server = CheckpointServer::new();
+    let mcp_server = McpServer::new();
+    let kv_server = KvServer::new();
     
     tracing::info!("Starting ToonDB gRPC server on {}", addr);
     tracing::info!("Server version: {}", env!("CARGO_PKG_VERSION"));
@@ -79,19 +119,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         r#"
 ╔══════════════════════════════════════════════════════════════╗
-║                 ToonDB gRPC Vector Index                     ║
+║            ToonDB gRPC Server (Thick Server)                 ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Server:     {}                                   
 ║  Version:    {}                                            
 ║                                                              ║
-║  Endpoints:                                                  ║
-║    - CreateIndex    - Create new HNSW index                  ║
-║    - InsertBatch    - Batch vector insertion                 ║
-║    - InsertStream   - Streaming insertion                    ║
-║    - Search         - K-nearest neighbor search              ║
-║    - SearchBatch    - Batch search                           ║
-║    - GetStats       - Index statistics                       ║
-║    - HealthCheck    - Health check                           ║
+║  Services:                                                   ║
+║    - VectorIndexService    Vector index operations           ║
+║    - GraphService          Graph overlay                     ║
+║    - PolicyService         Policy evaluation                 ║
+║    - ContextService        LLM context assembly              ║
+║    - CollectionService     Collection management             ║
+║    - NamespaceService      Multi-tenant namespaces           ║
+║    - SemanticCacheService  Semantic caching                  ║
+║    - TraceService          Distributed tracing               ║
+║    - CheckpointService     State snapshots                   ║
+║    - McpService            MCP tool routing                  ║
+║    - KvService             Key-value operations              ║
 ╚══════════════════════════════════════════════════════════════╝
 "#,
         addr,
@@ -99,7 +143,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     
     Server::builder()
-        .add_service(server.into_service())
+        .add_service(vector_server.into_service())
+        .add_service(graph_server.into_service())
+        .add_service(policy_server.into_service())
+        .add_service(context_server.into_service())
+        .add_service(collection_server.into_service())
+        .add_service(namespace_server.into_service())
+        .add_service(semantic_cache_server.into_service())
+        .add_service(trace_server.into_service())
+        .add_service(checkpoint_server.into_service())
+        .add_service(mcp_server.into_service())
+        .add_service(kv_server.into_service())
         .serve(addr)
         .await?;
     

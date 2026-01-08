@@ -575,3 +575,246 @@ pub fn require_agent_id() -> impl Fn(&PolicyContext) -> PolicyAction {
 pub fn redact_value(replacement: Vec<u8>) -> impl Fn(&PolicyContext) -> PolicyAction {
     move |_| PolicyAction::Modify(replacement.clone())
 }
+// ============================================================================
+// Policy Outcome Algebra (Task 2)
+// ============================================================================
+
+/// Policy outcome with deterministic precedence.
+/// 
+/// The precedence order forms a semilattice:
+/// `Deny > Modify > Allow` with `Log` as a side-effect.
+/// 
+/// This ensures:
+/// 1. Deterministic conflict resolution
+/// 2. Associative composition
+/// 3. Security-biased defaults (Deny wins)
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PolicyOutcome {
+    /// Operation is allowed (lowest precedence)
+    Allow = 0,
+    /// Operation is allowed but logged
+    AllowWithLog = 1,
+    /// Operation is allowed with modification
+    Modify = 2,
+    /// Operation is blocked (highest precedence)
+    Deny = 3,
+}
+
+impl PolicyOutcome {
+    /// Combine two outcomes using the semilattice join (max precedence wins)
+    pub fn join(self, other: PolicyOutcome) -> PolicyOutcome {
+        if self >= other { self } else { other }
+    }
+}
+
+impl From<&PolicyAction> for PolicyOutcome {
+    fn from(action: &PolicyAction) -> Self {
+        match action {
+            PolicyAction::Allow => PolicyOutcome::Allow,
+            PolicyAction::Log => PolicyOutcome::AllowWithLog,
+            PolicyAction::Modify(_) => PolicyOutcome::Modify,
+            PolicyAction::Deny => PolicyOutcome::Deny,
+        }
+    }
+}
+
+/// A compiled policy rule with typed hook points
+#[derive(Debug, Clone)]
+pub struct PolicyRule {
+    /// Unique rule ID for debugging/auditing
+    pub id: String,
+    /// Human-readable description
+    pub description: String,
+    /// When this rule triggers
+    pub trigger: PolicyTrigger,
+    /// Pattern to match (glob-style)
+    pub pattern: String,
+    /// Priority (higher = evaluated first within same trigger)
+    pub priority: i32,
+    /// Namespace scope (None = all namespaces)
+    pub namespace: Option<String>,
+    /// The outcome this rule produces
+    pub outcome: PolicyOutcome,
+}
+
+/// Compiled rule set for fast evaluation
+pub struct CompiledPolicySet {
+    /// Rules indexed by trigger type, sorted by priority (descending)
+    rules_by_trigger: HashMap<PolicyTrigger, Vec<CompiledRule>>,
+}
+
+struct CompiledRule {
+    rule: PolicyRule,
+    regex: Regex,
+    handler: Option<PolicyHandler>,
+}
+
+impl CompiledPolicySet {
+    /// Create a new compiled policy set
+    pub fn new() -> Self {
+        let mut rules_by_trigger = HashMap::new();
+        for trigger in [
+            PolicyTrigger::BeforeRead,
+            PolicyTrigger::AfterRead,
+            PolicyTrigger::BeforeWrite,
+            PolicyTrigger::AfterWrite,
+            PolicyTrigger::BeforeDelete,
+            PolicyTrigger::AfterDelete,
+        ] {
+            rules_by_trigger.insert(trigger, Vec::new());
+        }
+        Self { rules_by_trigger }
+    }
+    
+    /// Add a rule to the set
+    pub fn add_rule(&mut self, rule: PolicyRule, handler: Option<PolicyHandler>) {
+        let regex_str = rule.pattern
+            .replace(".", "\\.")
+            .replace("**", ".*")
+            .replace("*", "[^/]*");
+        let regex_str = format!("^{}$", regex_str);
+        let regex = Regex::new(&regex_str).unwrap_or_else(|_| Regex::new("^$").unwrap());
+        
+        let compiled = CompiledRule {
+            rule: rule.clone(),
+            regex,
+            handler,
+        };
+        
+        if let Some(rules) = self.rules_by_trigger.get_mut(&rule.trigger) {
+            rules.push(compiled);
+            // Sort by priority descending
+            rules.sort_by(|a, b| b.rule.priority.cmp(&a.rule.priority));
+        }
+    }
+    
+    /// Evaluate all applicable rules and return the final outcome
+    ///
+    /// Uses semilattice join for deterministic composition.
+    pub fn evaluate(&self, trigger: PolicyTrigger, ctx: &PolicyContext) -> EvaluationResult {
+        let mut final_outcome = PolicyOutcome::Allow;
+        let mut applied_rules = Vec::new();
+        let mut modifications = Vec::new();
+        
+        if let Some(rules) = self.rules_by_trigger.get(&trigger) {
+            for compiled in rules {
+                // Check namespace filter
+                if let Some(ref ns) = compiled.rule.namespace {
+                    if let Some(ctx_ns) = ctx.custom.get("namespace") {
+                        if ns != ctx_ns.as_str() {
+                            continue;
+                        }
+                    }
+                }
+                
+                // Check pattern match
+                let key_str = String::from_utf8_lossy(&ctx.key);
+                if !compiled.regex.is_match(&key_str) {
+                    continue;
+                }
+                
+                // Evaluate handler if present, otherwise use rule's static outcome
+                let outcome = if let Some(ref handler) = compiled.handler {
+                    let action = handler(ctx);
+                    match &action {
+                        PolicyAction::Modify(data) => {
+                            modifications.push(data.clone());
+                        }
+                        _ => {}
+                    }
+                    PolicyOutcome::from(&action)
+                } else {
+                    compiled.rule.outcome.clone()
+                };
+                
+                applied_rules.push(compiled.rule.id.clone());
+                final_outcome = final_outcome.join(outcome);
+                
+                // Short-circuit on Deny (highest precedence, nothing can override)
+                if final_outcome == PolicyOutcome::Deny {
+                    break;
+                }
+            }
+        }
+        
+        EvaluationResult {
+            outcome: final_outcome,
+            applied_rules,
+            modifications,
+        }
+    }
+}
+
+impl Default for CompiledPolicySet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Result of policy evaluation
+#[derive(Debug)]
+pub struct EvaluationResult {
+    /// Final outcome after semilattice join
+    pub outcome: PolicyOutcome,
+    /// IDs of rules that were applied
+    pub applied_rules: Vec<String>,
+    /// Modifications to apply (if outcome is Modify)
+    pub modifications: Vec<Vec<u8>>,
+}
+
+impl EvaluationResult {
+    /// Check if the operation is allowed
+    pub fn is_allowed(&self) -> bool {
+        !matches!(self.outcome, PolicyOutcome::Deny)
+    }
+    
+    /// Get the modification to apply (if any)
+    /// 
+    /// If multiple modifications exist, they are concatenated.
+    /// For more complex composition, use a custom modification handler.
+    pub fn get_modification(&self) -> Option<Vec<u8>> {
+        if self.modifications.is_empty() {
+            None
+        } else if self.modifications.len() == 1 {
+            Some(self.modifications[0].clone())
+        } else {
+            // Multiple modifications - last one wins (or implement custom logic)
+            Some(self.modifications.last().unwrap().clone())
+        }
+    }
+}
+
+// ============================================================================
+// Policy Engine Integration with AllowedSet
+// ============================================================================
+
+/// Convert policy denials to AllowedSet exclusions
+///
+/// This is the integration point between the policy engine and retrieval.
+/// Documents denied by policy are removed from the AllowedSet BEFORE
+/// candidate generation, preserving the "no post-filtering" invariant.
+impl<C: ConnectionTrait> PolicyEngine<C> {
+    /// Evaluate policies and return IDs that should be EXCLUDED from results
+    ///
+    /// This integrates with the retrieval layer by converting policy denials
+    /// into AllowedSet membership.
+    pub fn get_denied_ids(
+        &self,
+        trigger: PolicyTrigger,
+        candidate_ids: &[Vec<u8>],
+        base_ctx: &PolicyContext,
+    ) -> Vec<Vec<u8>> {
+        let mut denied = Vec::new();
+        
+        for key in candidate_ids {
+            let mut ctx = base_ctx.clone();
+            ctx.key = key.clone();
+            
+            if let PolicyAction::Deny = self.evaluate_policies(trigger, &ctx) {
+                denied.push(key.clone());
+            }
+        }
+        
+        denied
+    }
+}

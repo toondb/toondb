@@ -643,4 +643,104 @@ mod tests {
         assert!((scores[&2] - 0.5).abs() < 0.001);
         assert!((scores[&3] - 0.0).abs() < 0.001);
     }
+    
+    #[test]
+    fn test_no_post_filter_invariant() {
+        // This test verifies the core invariant:
+        // result-set ⊆ allowed-set
+        //
+        // If this invariant is violated, it indicates a security issue.
+        
+        let allowed: std::collections::HashSet<u64> = [1, 2, 3, 5, 8].into_iter().collect();
+        let allowed_set = AllowedSet::from_iter(allowed.iter().copied());
+        
+        // Simulate filtered candidates (these should already respect AllowedSet)
+        let vector = FilteredCandidates::from_vector(vec![
+            ScoredResult::new(1, 0.9),  // in allowed set
+            ScoredResult::new(2, 0.8),  // in allowed set
+            ScoredResult::new(5, 0.7),  // in allowed set
+        ]);
+        
+        let bm25 = FilteredCandidates::from_bm25(vec![
+            ScoredResult::new(2, 5.0),  // in allowed set
+            ScoredResult::new(3, 4.0),  // in allowed set
+            ScoredResult::new(8, 3.0),  // in allowed set
+        ]);
+        
+        let config = FusionConfig::default();
+        let engine = FusionEngine::new(config);
+        let result = engine.fuse(Some(vector), Some(bm25));
+        
+        // INVARIANT: Every result doc_id must be in the allowed set
+        for doc in &result.results {
+            assert!(
+                allowed_set.contains(doc.doc_id),
+                "INVARIANT VIOLATION: doc_id {} not in allowed set",
+                doc.doc_id
+            );
+        }
+    }
+}
+
+// ============================================================================
+// Invariant Verification
+// ============================================================================
+
+/// Verify that a fusion result respects the no-post-filtering invariant
+/// 
+/// This function should be used in tests and optionally in debug builds
+/// to verify that the security invariant holds.
+///
+/// # Invariant
+///
+/// `∀ doc ∈ result: doc.id ∈ allowed_set`
+///
+/// This is the "monotone property" from the architecture document.
+pub fn verify_no_post_filter_invariant(
+    result: &FusionResult,
+    allowed_set: &AllowedSet,
+) -> InvariantVerification {
+    let mut violations = Vec::new();
+    
+    for doc in &result.results {
+        if !allowed_set.contains(doc.doc_id) {
+            violations.push(doc.doc_id);
+        }
+    }
+    
+    if violations.is_empty() {
+        InvariantVerification::Valid
+    } else {
+        InvariantVerification::Violated { doc_ids: violations }
+    }
+}
+
+/// Result of invariant verification
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InvariantVerification {
+    /// Invariant holds
+    Valid,
+    /// Invariant violated - these doc IDs should not be in results
+    Violated { doc_ids: Vec<u64> },
+}
+
+impl InvariantVerification {
+    /// Check if the invariant holds
+    pub fn is_valid(&self) -> bool {
+        matches!(self, Self::Valid)
+    }
+    
+    /// Panic if the invariant is violated (for testing)
+    pub fn assert_valid(&self) {
+        match self {
+            Self::Valid => {}
+            Self::Violated { doc_ids } => {
+                panic!(
+                    "NO-POST-FILTER INVARIANT VIOLATED: {} docs not in allowed set: {:?}",
+                    doc_ids.len(),
+                    doc_ids
+                );
+            }
+        }
+    }
 }

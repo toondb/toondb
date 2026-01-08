@@ -1152,3 +1152,219 @@ pub unsafe extern "C" fn toondb_get_table_index_policy(
     }
 }
 
+/// C-compatible Temporal Edge
+#[repr(C)]
+pub struct C_TemporalEdge {
+    pub from_id: *const c_char,
+    pub edge_type: *const c_char,
+    pub to_id: *const c_char,
+    pub valid_from: u64,
+    pub valid_until: u64,
+    pub properties_json: *const c_char,  // JSON string of properties
+}
+
+/// Add a temporal edge with validity interval.
+/// # Safety
+/// All pointers must be valid C strings. properties_json can be null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn toondb_add_temporal_edge(
+    ptr: *mut DatabasePtr,
+    namespace: *const c_char,
+    edge: C_TemporalEdge,
+) -> c_int {
+    if ptr.is_null() || namespace.is_null() || edge.from_id.is_null() 
+        || edge.edge_type.is_null() || edge.to_id.is_null() {
+        return -1;
+    }
+
+    let ns = match unsafe { CStr::from_ptr(namespace) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let from = match unsafe { CStr::from_ptr(edge.from_id) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let etype = match unsafe { CStr::from_ptr(edge.edge_type) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let to = match unsafe { CStr::from_ptr(edge.to_id) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+
+    let db = unsafe { &(*ptr).0 };
+    
+    // Begin transaction for atomic write
+    let txn = match db.begin_transaction() {
+        Ok(t) => t,
+        Err(_) => return -1,
+    };
+    
+    // Store temporal edge: _graph/{ns}/temporal/{from}/{type}/{to}/{valid_from}
+    let key = format!(
+        "_graph/{}/temporal/{}/{}/{}/{:016x}",
+        ns, from, etype, to, edge.valid_from
+    );
+    
+    let props_str = if edge.properties_json.is_null() {
+        "{}".to_string()
+    } else {
+        match unsafe { CStr::from_ptr(edge.properties_json) }.to_str() {
+            Ok(s) => s.to_string(),
+            Err(_) => return -1,
+        }
+    };
+    
+    let value = format!(
+        r#"{{"from_id":"{}","edge_type":"{}","to_id":"{}","valid_from":{},"valid_until":{},"properties":{}}}"#,
+        from, etype, to, edge.valid_from, edge.valid_until, props_str
+    );
+    
+    if let Err(_) = db.put(txn, key.as_bytes(), value.as_bytes()) {
+        let _ = db.abort(txn);
+        return -1;
+    }
+    
+    match db.commit(txn) {
+        Ok(_) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Query temporal graph edges. Returns a JSON array of matching edges.
+/// Caller must free the returned string with toondb_free_string.
+/// 
+/// query_mode: 0=POINT_IN_TIME, 1=RANGE, 2=CURRENT
+/// # Safety
+/// All pointers must be valid C strings. edge_type can be null for no filter.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn toondb_query_temporal_graph(
+    ptr: *mut DatabasePtr,
+    namespace: *const c_char,
+    node_id: *const c_char,
+    query_mode: u8,
+    timestamp: u64,      // For POINT_IN_TIME
+    start_time: u64,     // For RANGE
+    end_time: u64,       // For RANGE
+    edge_type: *const c_char,  // Optional filter (null = all types)
+    out_len: *mut usize,
+) -> *mut c_char {
+    if ptr.is_null() || namespace.is_null() || node_id.is_null() || out_len.is_null() {
+        return ptr::null_mut();
+    }
+
+    let ns = match unsafe { CStr::from_ptr(namespace) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return ptr::null_mut(),
+    };
+    let node = match unsafe { CStr::from_ptr(node_id) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return ptr::null_mut(),
+    };
+    
+    let edge_filter = if edge_type.is_null() {
+        None
+    } else {
+        match unsafe { CStr::from_ptr(edge_type) }.to_str() {
+            Ok(s) => Some(s),
+            Err(_) => return ptr::null_mut(),
+        }
+    };
+
+    let db = unsafe { &(*ptr).0 };
+    
+    // Begin transaction for scan
+    let txn = match db.begin_transaction() {
+        Ok(t) => t,
+        Err(_) => return ptr::null_mut(),
+    };
+    
+    // Scan prefix: _graph/{ns}/temporal/{node}/
+    let prefix = format!("_graph/{}/temporal/{}/", ns, node);
+    let pairs = match db.scan(txn, prefix.as_bytes()) {
+        Ok(p) => p,
+        Err(_) => {
+            let _ = db.abort(txn);
+            return ptr::null_mut();
+        }
+    };
+    
+    // Commit read transaction
+    if let Err(_) = db.commit(txn) {
+        return ptr::null_mut();
+    }
+    
+    let mut results = Vec::new();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    
+    for (_key, value) in pairs {
+        // Parse the JSON value
+        let value_str = match std::str::from_utf8(&value) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        
+        // Simple JSON parsing (in production, use serde_json)
+        if let Some(valid_from_pos) = value_str.find(r#""valid_from":"#) {
+            if let Some(valid_until_pos) = value_str.find(r#""valid_until":"#) {
+                let vf_start = valid_from_pos + r#""valid_from":"#.len();
+                let vf_end = value_str[vf_start..].find(',').unwrap_or(0) + vf_start;
+                let vu_start = valid_until_pos + r#""valid_until":"#.len();
+                let vu_end = value_str[vu_start..].find(',').unwrap_or(0) + vu_start;
+                
+                let valid_from: u64 = value_str[vf_start..vf_end].parse().unwrap_or(0);
+                let valid_until: u64 = value_str[vu_start..vu_end].parse().unwrap_or(0);
+                
+                // Filter by edge_type if specified
+                if let Some(filter) = edge_filter {
+                    if !value_str.contains(&format!(r#""edge_type":"{}""#, filter)) {
+                        continue;
+                    }
+                }
+                
+                // Filter by query mode
+                let matches = match query_mode {
+                    0 => timestamp >= valid_from && (valid_until == 0 || timestamp < valid_until),
+                    1 => {
+                        let edge_end = if valid_until == 0 { u64::MAX } else { valid_until };
+                        valid_from < end_time && edge_end > start_time
+                    }
+                    2 => now >= valid_from && (valid_until == 0 || now < valid_until),
+                    _ => false,
+                };
+                
+                if matches {
+                    results.push(value_str.to_string());
+                }
+            }
+        }
+    }
+    
+    // Build JSON array
+    let json = format!("[{}]", results.join(","));
+    let c_string = match std::ffi::CString::new(json) {
+        Ok(s) => s,
+        Err(_) => return ptr::null_mut(),
+    };
+    
+    unsafe { *out_len = c_string.as_bytes().len() };
+    c_string.into_raw()
+}
+
+/// Free a string returned by toondb_query_temporal_graph.
+/// # Safety
+/// The ptr must be a valid pointer returned by toondb_query_temporal_graph.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn toondb_free_string(ptr: *mut c_char) {
+    if !ptr.is_null() {
+        unsafe {
+            let _ = std::ffi::CString::from_raw(ptr);
+        }
+    }
+}
+

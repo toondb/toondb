@@ -12,19 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! ToonDB gRPC Vector Index Service
+//! ToonDB gRPC Services
 //!
-//! This crate provides a gRPC interface for ToonDB's HNSW vector index.
-//! It enables cross-language clients to perform vector operations over
-//! the network using Protocol Buffers.
+//! This crate provides a comprehensive gRPC interface for ToonDB operations.
+//! It implements a "Thick Server / Thin Client" architecture where all business
+//! logic lives in the Rust server, enabling thin SDK wrappers in any language.
 //!
-//! ## Features
+//! ## Services
 //!
-//! - **CreateIndex**: Create new HNSW indices with custom configuration
-//! - **InsertBatch**: Efficient batch vector insertion
-//! - **InsertStream**: Streaming insertion for large datasets
-//! - **Search**: K-nearest neighbor search
-//! - **SearchBatch**: Batch search for multiple queries
+//! - **VectorIndexService**: HNSW vector operations
+//! - **GraphService**: Graph overlay for agent memory
+//! - **PolicyService**: Policy evaluation and enforcement
+//! - **ContextService**: LLM context assembly with token budgets
+//! - **CollectionService**: Collection management
+//! - **NamespaceService**: Multi-tenant namespace management
+//! - **SemanticCacheService**: Semantic caching for LLM queries
+//! - **TraceService**: Trace/span management
+//! - **CheckpointService**: State checkpoint and restore
+//! - **McpService**: MCP tool routing
+//! - **KvService**: Basic key-value operations
 //!
 //! ## Usage
 //!
@@ -38,21 +44,27 @@
 //!
 //! channel = grpc.insecure_channel('localhost:50051')
 //! stub = toondb_pb2_grpc.VectorIndexServiceStub(channel)
-//!
-//! # Create index
-//! response = stub.CreateIndex(toondb_pb2.CreateIndexRequest(
-//!     name="embeddings",
-//!     dimension=768,
-//! ))
 //! ```
 
 pub mod proto {
     // Include generated protobuf code
-    tonic::include_proto!("toondb.vector.v1");
+    tonic::include_proto!("toondb.v1");
 }
 
 pub mod server;
 pub mod error;
+
+// Service implementations
+pub mod graph_server;
+pub mod policy_server;
+pub mod context_server;
+pub mod collection_server;
+pub mod namespace_server;
+pub mod semantic_cache_server;
+pub mod trace_server;
+pub mod checkpoint_server;
+pub mod mcp_server;
+pub mod kv_server;
 
 pub use server::VectorIndexServer;
 pub use error::GrpcError;
