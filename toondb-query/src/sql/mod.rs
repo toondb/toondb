@@ -25,12 +25,16 @@
 //! ```
 
 pub mod ast;
+pub mod bridge;
+pub mod compatibility;
 pub mod error;
 pub mod lexer;
 pub mod parser;
 pub mod token;
 
 pub use ast::*;
+pub use bridge::{ExecutionResult as BridgeExecutionResult, SqlBridge, SqlConnection};
+pub use compatibility::{CompatibilityMatrix, FeatureSupport, SqlDialect, SqlFeature, get_feature_support};
 pub use error::{SqlError, SqlResult};
 pub use lexer::{LexError, Lexer};
 pub use parser::{ParseError, Parser};

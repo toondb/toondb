@@ -66,6 +66,7 @@
 //!     .execute()?;
 //! ```
 
+pub mod ast_query;
 pub mod atomic_memory;
 pub mod batch;
 pub mod checkpoint;

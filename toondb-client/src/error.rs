@@ -75,6 +75,10 @@ pub enum ClientError {
     #[error("Parse error: {0}")]
     Parse(String),
 
+    /// Constraint violation (unique, foreign key, etc.)
+    #[error("Constraint violation: {0}")]
+    Constraint(String),
+
     /// Vector collection errors
     #[error("Vector error: {0}")]
     Vector(String),

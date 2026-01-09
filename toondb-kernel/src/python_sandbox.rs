@@ -529,7 +529,7 @@ impl PyodideRuntime {
     fn extract_amount(&self, json: &str) -> Option<f64> {
         // Simple extraction (in production, use serde_json)
         if let Some(start) = json.find("\"amount\":") {
-            let rest = &json[start + 9..];
+            let rest = &json[start + 9..].trim_start();
             let end = rest.find(|c: char| !c.is_numeric() && c != '.' && c != '-');
             let num_str = match end {
                 Some(e) => &rest[..e],

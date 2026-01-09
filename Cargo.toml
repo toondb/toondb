@@ -74,6 +74,17 @@ chrono = { version = "0.4", features = ["serde"] }
 lz4 = "1.24"
 zstd = "0.13"
 
+# NOTE: Tokio is NOT a workspace dependency to allow true optional usage
+# Crates that need async runtime should declare tokio directly with optional = true
+# Example:
+#   [dependencies]
+#   tokio = { version = "1.35", features = ["sync", "rt"], optional = true }
+#   
+#   [features]
+#   async = ["tokio"]
+#
+# This ensures the core storage/kernel crates remain async-free unless explicitly enabled.
+
 # Data structures
 crossbeam-skiplist = "0.1"
 crossbeam-channel = "0.5"
@@ -95,10 +106,6 @@ anyhow = "1.0"
 
 # Logging (lightweight, no OpenTelemetry)
 tracing = "0.1"
-
-# Async runtime - OPTIONAL for server/async use cases
-# Storage core is sync-first; enable async via feature flags in individual crates
-tokio = { version = "1.35", features = ["sync", "time", "macros", "rt"], optional = false }
 
 # Testing
 criterion = "0.5"

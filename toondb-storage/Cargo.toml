@@ -16,11 +16,12 @@ description = "ToonDB storage engine (WAL, block store, compaction, sync-first I
 crate-type = ["lib", "cdylib"]
 
 [features]
-# Default includes async support for server/MCP use cases
-default = ["async"]
+# Default is sync-first - no async runtime pulled in by default
+# Enable async explicitly when needed for server/MCP use cases
+default = []
 ffi = []
-# Async support via Tokio - disable for embedded/sync-only deployments
-# To build without async: cargo build --no-default-features
+# Async support via Tokio - enable explicitly for async use cases
+# Example: cargo build --features async
 async = ["tokio"]
 # Pure synchronous mode for embedded deployments (like SQLite)
 # Reduces binary size by ~500KB and removes async runtime dependency
@@ -29,7 +30,7 @@ embedded-sync = []
 [dependencies]
 toondb-core = { version = "0.3.3", path = "../toondb-core" }
 # Tokio is optional - only included when "async" feature is enabled
-tokio = { workspace = true, features = ["sync", "time", "macros", "rt"], optional = true }
+tokio = { version = "1.35", features = ["sync", "time", "macros", "rt"], optional = true }
 serde = { workspace = true }
 bincode = { workspace = true }
 thiserror = { workspace = true }
@@ -70,7 +71,7 @@ io-uring = "0.6"
 [dev-dependencies]
 tempfile = { workspace = true }
 proptest = { workspace = true }
-tokio = { workspace = true }
+# Tokio removed - storage tests are sync-first
 criterion = { workspace = true }
 rand = "0.8"
 chrono = { version = "0.4", features = ["serde"] }

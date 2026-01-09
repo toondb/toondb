@@ -160,6 +160,13 @@ pub enum InsertSource {
 }
 
 /// ON CONFLICT clause
+///
+/// Represents conflict handling for INSERT statements across SQL dialects:
+/// - PostgreSQL: `ON CONFLICT DO NOTHING/UPDATE`
+/// - MySQL: `INSERT IGNORE`, `ON DUPLICATE KEY UPDATE`
+/// - SQLite: `INSERT OR IGNORE/REPLACE/ABORT`
+///
+/// All dialects normalize to this single representation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OnConflict {
     pub target: Option<ConflictTarget>,
@@ -174,8 +181,16 @@ pub enum ConflictTarget {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConflictAction {
+    /// ON CONFLICT DO NOTHING / INSERT IGNORE / INSERT OR IGNORE
     DoNothing,
+    /// ON CONFLICT DO UPDATE SET ... / ON DUPLICATE KEY UPDATE ...
     DoUpdate(Vec<Assignment>),
+    /// INSERT OR REPLACE (SQLite) - replaces the entire row
+    DoReplace,
+    /// INSERT OR ABORT (SQLite) - abort on conflict (default behavior)
+    DoAbort,
+    /// INSERT OR FAIL (SQLite) - fail but continue with other rows
+    DoFail,
 }
 
 /// UPDATE statement
@@ -424,6 +439,7 @@ pub struct DropIndexStmt {
     pub if_exists: bool,
     pub name: String,
     pub table: Option<ObjectName>,
+    pub cascade: bool,
 }
 
 /// BEGIN statement

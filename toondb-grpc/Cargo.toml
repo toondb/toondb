@@ -21,8 +21,8 @@ toondb-core = { version = "0.3.3", path = "../toondb-core", features = ["analyti
 tonic = "0.13"
 prost = "0.13"
 
-# Async runtime
-tokio = { version = "1.0", features = ["rt-multi-thread", "signal", "macros"] }
+# Async runtime - gRPC server requires tokio
+tokio = { version = "1.35", features = ["rt-multi-thread", "signal", "macros", "sync", "time"] }
 tokio-stream = "0.1"
 
 # Utilities

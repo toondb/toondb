@@ -487,6 +487,30 @@ impl Parser {
     fn parse_insert(&mut self) -> Result<InsertStmt, ParseError> {
         let start_span = self.current_span();
         self.expect(&TokenKind::Insert, "Expected INSERT")?;
+
+        // Check for MySQL-style INSERT IGNORE
+        let mysql_ignore = self.match_token(&TokenKind::Ignore);
+
+        // Check for SQLite-style INSERT OR {IGNORE|REPLACE|ABORT|FAIL}
+        let sqlite_conflict_action = if self.match_token(&TokenKind::Or) {
+            if self.match_token(&TokenKind::Ignore) {
+                Some(ConflictAction::DoNothing)
+            } else if self.match_token(&TokenKind::Replace) {
+                Some(ConflictAction::DoReplace)
+            } else if self.match_token(&TokenKind::Abort) {
+                Some(ConflictAction::DoAbort)
+            } else if self.match_token(&TokenKind::Fail) {
+                Some(ConflictAction::DoFail)
+            } else {
+                return Err(ParseError::new(
+                    "Expected IGNORE, REPLACE, ABORT, or FAIL after OR",
+                    self.current_span(),
+                ));
+            }
+        } else {
+            None
+        };
+
         self.expect(&TokenKind::Into, "Expected INTO")?;
 
         let table = self.parse_object_name()?;
@@ -515,11 +539,46 @@ impl Parser {
             ));
         };
 
-        // ON CONFLICT clause (PostgreSQL style)
-        let on_conflict = None; // TODO: Implement
+        // Parse ON CONFLICT (PostgreSQL) or ON DUPLICATE KEY UPDATE (MySQL)
+        let on_conflict = if self.match_token(&TokenKind::On) {
+            if self.match_token(&TokenKind::Conflict) {
+                // PostgreSQL: ON CONFLICT [target] DO {NOTHING | UPDATE SET ...}
+                Some(self.parse_on_conflict()?)
+            } else if self.match_token(&TokenKind::Duplicate) {
+                // MySQL: ON DUPLICATE KEY UPDATE ...
+                self.expect(&TokenKind::Key, "Expected KEY after DUPLICATE")?;
+                self.expect(&TokenKind::Update, "Expected UPDATE after KEY")?;
+                let assignments = self.parse_assignments()?;
+                Some(OnConflict {
+                    target: None,
+                    action: ConflictAction::DoUpdate(assignments),
+                })
+            } else {
+                return Err(ParseError::new(
+                    "Expected CONFLICT or DUPLICATE after ON",
+                    self.current_span(),
+                ));
+            }
+        } else if mysql_ignore {
+            // MySQL INSERT IGNORE normalizes to DoNothing
+            Some(OnConflict {
+                target: None,
+                action: ConflictAction::DoNothing,
+            })
+        } else {
+            // SQLite conflict action from OR clause
+            sqlite_conflict_action.map(|action| OnConflict {
+                target: None,
+                action,
+            })
+        };
 
-        // RETURNING clause
-        let returning = None; // TODO: Implement
+        // RETURNING clause (PostgreSQL/SQLite)
+        let returning = if self.match_token(&TokenKind::Returning) {
+            Some(self.parse_select_list()?)
+        } else {
+            None
+        };
 
         Ok(InsertStmt {
             span: start_span.merge(self.current_span()),
@@ -529,6 +588,41 @@ impl Parser {
             on_conflict,
             returning,
         })
+    }
+
+    /// Parse ON CONFLICT clause (PostgreSQL style)
+    fn parse_on_conflict(&mut self) -> Result<OnConflict, ParseError> {
+        // Optional conflict target: (columns) or ON CONSTRAINT name
+        let target = if self.match_token(&TokenKind::LParen) {
+            let cols = self.parse_identifier_list()?;
+            self.expect(&TokenKind::RParen, "Expected ')' after conflict columns")?;
+            Some(ConflictTarget::Columns(cols))
+        } else if self.match_token(&TokenKind::On) {
+            // ON CONSTRAINT name (though this is a bit unusual syntax)
+            // Actually PostgreSQL uses just ON CONFLICT ON CONSTRAINT name
+            // Let's handle the standard case
+            None
+        } else {
+            None
+        };
+
+        // DO {NOTHING | UPDATE SET ...}
+        self.expect(&TokenKind::Do, "Expected DO after ON CONFLICT")?;
+
+        let action = if self.match_token(&TokenKind::Nothing) {
+            ConflictAction::DoNothing
+        } else if self.match_token(&TokenKind::Update) {
+            self.expect(&TokenKind::Set, "Expected SET after UPDATE")?;
+            let assignments = self.parse_assignments()?;
+            ConflictAction::DoUpdate(assignments)
+        } else {
+            return Err(ParseError::new(
+                "Expected NOTHING or UPDATE after DO",
+                self.current_span(),
+            ));
+        };
+
+        Ok(OnConflict { target, action })
     }
 
     fn parse_values_list(&mut self) -> Result<Vec<Vec<Expr>>, ParseError> {
@@ -647,12 +741,17 @@ impl Parser {
     fn parse_create(&mut self) -> Result<Statement, ParseError> {
         self.expect(&TokenKind::Create, "Expected CREATE")?;
 
+        // Check for CREATE UNIQUE INDEX
+        let unique = self.match_token(&TokenKind::Unique);
+
         if self.match_token(&TokenKind::Table) {
             self.parse_create_table().map(Statement::CreateTable)
-        } else if self.match_token(&TokenKind::Index) || self.match_token(&TokenKind::Unique) {
-            // TODO: CREATE INDEX
+        } else if self.match_token(&TokenKind::Index) {
+            self.parse_create_index(unique).map(Statement::CreateIndex)
+        } else if unique {
+            // After UNIQUE, must be INDEX
             Err(ParseError::new(
-                "CREATE INDEX not yet implemented",
+                "Expected INDEX after UNIQUE",
                 self.current_span(),
             ))
         } else {
@@ -661,6 +760,71 @@ impl Parser {
                 self.current_span(),
             ))
         }
+    }
+
+    fn parse_create_index(&mut self, unique: bool) -> Result<CreateIndexStmt, ParseError> {
+        let start_span = self.current_span();
+
+        // IF NOT EXISTS
+        let if_not_exists = if self.match_token(&TokenKind::If) {
+            self.expect(&TokenKind::Not, "Expected NOT after IF")?;
+            self.expect(&TokenKind::Exists, "Expected EXISTS after IF NOT")?;
+            true
+        } else {
+            false
+        };
+
+        // Index name
+        let name = self.expect_identifier("Expected index name")?;
+
+        self.expect(&TokenKind::On, "Expected ON after index name")?;
+
+        // Table name
+        let table = self.parse_object_name()?;
+
+        // Column list
+        self.expect(&TokenKind::LParen, "Expected '(' after table name")?;
+        let mut columns = Vec::new();
+        loop {
+            let col_name = self.expect_identifier("Expected column name")?;
+            
+            // Optional ASC/DESC
+            let asc = if self.match_token(&TokenKind::Desc) {
+                false
+            } else {
+                self.match_token(&TokenKind::Asc);
+                true
+            };
+
+            columns.push(IndexColumn {
+                name: col_name,
+                asc,
+                nulls_first: None,
+            });
+
+            if !self.match_token(&TokenKind::Comma) {
+                break;
+            }
+        }
+        self.expect(&TokenKind::RParen, "Expected ')' after column list")?;
+
+        // Optional WHERE clause for partial indexes
+        let where_clause = if self.match_token(&TokenKind::Where) {
+            Some(self.parse_expr()?)
+        } else {
+            None
+        };
+
+        Ok(CreateIndexStmt {
+            span: start_span.merge(self.current_span()),
+            unique,
+            if_not_exists,
+            name,
+            table,
+            columns,
+            where_clause,
+            index_type: None,
+        })
     }
 
     fn parse_create_table(&mut self) -> Result<CreateTableStmt, ParseError> {
@@ -854,6 +1018,7 @@ impl Parser {
     }
 
     fn parse_drop(&mut self) -> Result<Statement, ParseError> {
+        let start_span = self.current_span();
         self.expect(&TokenKind::Drop, "Expected DROP")?;
 
         if self.match_token(&TokenKind::Table) {
@@ -868,14 +1033,38 @@ impl Parser {
             let cascade = false; // TODO: Parse CASCADE
 
             Ok(Statement::DropTable(DropTableStmt {
-                span: self.current_span(),
+                span: start_span.merge(self.current_span()),
                 if_exists,
                 names: vec![name],
                 cascade,
             }))
+        } else if self.match_token(&TokenKind::Index) {
+            let if_exists = if self.match_token(&TokenKind::If) {
+                self.expect(&TokenKind::Exists, "Expected EXISTS after IF")?;
+                true
+            } else {
+                false
+            };
+
+            let name = self.expect_identifier("Expected index name")?;
+
+            // Optional ON table_name (PostgreSQL style)
+            let table = if self.match_token(&TokenKind::On) {
+                Some(self.parse_object_name()?)
+            } else {
+                None
+            };
+
+            Ok(Statement::DropIndex(DropIndexStmt {
+                span: start_span.merge(self.current_span()),
+                if_exists,
+                name,
+                table,
+                cascade: false,
+            }))
         } else {
             Err(ParseError::new(
-                "Expected TABLE after DROP",
+                "Expected TABLE or INDEX after DROP",
                 self.current_span(),
             ))
         }
@@ -1727,5 +1916,185 @@ mod tests {
         assert!(matches!(stmts[0], Statement::Begin(_)));
         assert!(matches!(stmts[1], Statement::Commit));
         assert!(matches!(stmts[2], Statement::Rollback(_)));
+    }
+
+    // ===== Dialect-Specific Insert Tests =====
+
+    #[test]
+    fn test_insert_on_conflict_do_nothing() {
+        let stmt = Parser::parse(
+            "INSERT INTO users (id, name) VALUES (1, 'Alice') ON CONFLICT DO NOTHING",
+        )
+        .unwrap();
+        if let Statement::Insert(insert) = stmt {
+            assert!(insert.on_conflict.is_some());
+            let on_conflict = insert.on_conflict.unwrap();
+            assert!(matches!(on_conflict.action, ConflictAction::DoNothing));
+        } else {
+            panic!("Expected INSERT statement");
+        }
+    }
+
+    #[test]
+    fn test_insert_on_conflict_do_update() {
+        let stmt = Parser::parse(
+            "INSERT INTO users (id, name) VALUES (1, 'Alice') ON CONFLICT (id) DO UPDATE SET name = 'Bob'",
+        )
+        .unwrap();
+        if let Statement::Insert(insert) = stmt {
+            assert!(insert.on_conflict.is_some());
+            let on_conflict = insert.on_conflict.unwrap();
+            assert!(matches!(on_conflict.target, Some(ConflictTarget::Columns(_))));
+            assert!(matches!(on_conflict.action, ConflictAction::DoUpdate(_)));
+        } else {
+            panic!("Expected INSERT statement");
+        }
+    }
+
+    #[test]
+    fn test_insert_ignore_mysql() {
+        let stmt = Parser::parse("INSERT IGNORE INTO users (id, name) VALUES (1, 'Alice')").unwrap();
+        if let Statement::Insert(insert) = stmt {
+            assert!(insert.on_conflict.is_some());
+            let on_conflict = insert.on_conflict.unwrap();
+            assert!(matches!(on_conflict.action, ConflictAction::DoNothing));
+        } else {
+            panic!("Expected INSERT statement");
+        }
+    }
+
+    #[test]
+    fn test_insert_or_ignore_sqlite() {
+        let stmt =
+            Parser::parse("INSERT OR IGNORE INTO users (id, name) VALUES (1, 'Alice')").unwrap();
+        if let Statement::Insert(insert) = stmt {
+            assert!(insert.on_conflict.is_some());
+            let on_conflict = insert.on_conflict.unwrap();
+            assert!(matches!(on_conflict.action, ConflictAction::DoNothing));
+        } else {
+            panic!("Expected INSERT statement");
+        }
+    }
+
+    #[test]
+    fn test_insert_or_replace_sqlite() {
+        let stmt =
+            Parser::parse("INSERT OR REPLACE INTO users (id, name) VALUES (1, 'Alice')").unwrap();
+        if let Statement::Insert(insert) = stmt {
+            assert!(insert.on_conflict.is_some());
+            let on_conflict = insert.on_conflict.unwrap();
+            assert!(matches!(on_conflict.action, ConflictAction::DoReplace));
+        } else {
+            panic!("Expected INSERT statement");
+        }
+    }
+
+    #[test]
+    fn test_on_duplicate_key_update_mysql() {
+        let stmt = Parser::parse(
+            "INSERT INTO users (id, name) VALUES (1, 'Alice') ON DUPLICATE KEY UPDATE name = 'Bob'",
+        )
+        .unwrap();
+        if let Statement::Insert(insert) = stmt {
+            assert!(insert.on_conflict.is_some());
+            let on_conflict = insert.on_conflict.unwrap();
+            assert!(matches!(on_conflict.action, ConflictAction::DoUpdate(_)));
+        } else {
+            panic!("Expected INSERT statement");
+        }
+    }
+
+    // ===== Idempotent DDL Tests =====
+
+    #[test]
+    fn test_create_table_if_not_exists() {
+        let stmt = Parser::parse("CREATE TABLE IF NOT EXISTS users (id INT PRIMARY KEY)").unwrap();
+        if let Statement::CreateTable(create) = stmt {
+            assert!(create.if_not_exists);
+        } else {
+            panic!("Expected CREATE TABLE statement");
+        }
+    }
+
+    #[test]
+    fn test_drop_table_if_exists() {
+        let stmt = Parser::parse("DROP TABLE IF EXISTS users").unwrap();
+        if let Statement::DropTable(drop) = stmt {
+            assert!(drop.if_exists);
+        } else {
+            panic!("Expected DROP TABLE statement");
+        }
+    }
+
+    #[test]
+    fn test_create_index() {
+        let stmt = Parser::parse("CREATE INDEX idx_users_name ON users (name)").unwrap();
+        if let Statement::CreateIndex(create) = stmt {
+            assert_eq!(create.name, "idx_users_name");
+            assert_eq!(create.table.name(), "users");
+            assert!(!create.unique);
+            assert!(!create.if_not_exists);
+        } else {
+            panic!("Expected CREATE INDEX statement");
+        }
+    }
+
+    #[test]
+    fn test_create_unique_index() {
+        let stmt = Parser::parse("CREATE UNIQUE INDEX idx_users_email ON users (email)").unwrap();
+        if let Statement::CreateIndex(create) = stmt {
+            assert!(create.unique);
+        } else {
+            panic!("Expected CREATE INDEX statement");
+        }
+    }
+
+    #[test]
+    fn test_create_index_if_not_exists() {
+        let stmt =
+            Parser::parse("CREATE INDEX IF NOT EXISTS idx_users_name ON users (name)").unwrap();
+        if let Statement::CreateIndex(create) = stmt {
+            assert!(create.if_not_exists);
+        } else {
+            panic!("Expected CREATE INDEX statement");
+        }
+    }
+
+    #[test]
+    fn test_drop_index() {
+        let stmt = Parser::parse("DROP INDEX idx_users_name").unwrap();
+        if let Statement::DropIndex(drop) = stmt {
+            assert_eq!(drop.name, "idx_users_name");
+            assert!(!drop.if_exists);
+        } else {
+            panic!("Expected DROP INDEX statement");
+        }
+    }
+
+    #[test]
+    fn test_drop_index_if_exists() {
+        let stmt = Parser::parse("DROP INDEX IF EXISTS idx_users_name").unwrap();
+        if let Statement::DropIndex(drop) = stmt {
+            assert!(drop.if_exists);
+        } else {
+            panic!("Expected DROP INDEX statement");
+        }
+    }
+
+    // ===== RETURNING clause tests =====
+
+    #[test]
+    fn test_insert_returning() {
+        let stmt = Parser::parse(
+            "INSERT INTO users (id, name) VALUES (1, 'Alice') RETURNING id, name",
+        )
+        .unwrap();
+        if let Statement::Insert(insert) = stmt {
+            assert!(insert.returning.is_some());
+            let returning = insert.returning.unwrap();
+            assert_eq!(returning.len(), 2);
+        } else {
+            panic!("Expected INSERT statement");
+        }
     }
 }

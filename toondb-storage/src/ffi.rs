@@ -1368,3 +1368,733 @@ pub unsafe extern "C" fn toondb_free_string(ptr: *mut c_char) {
     }
 }
 
+// ============================================================================
+// Graph Overlay FFI - Nodes, Edges, Traversal
+// ============================================================================
+
+/// Add a node to the graph overlay.
+/// 
+/// Stores node as: _graph/{namespace}/nodes/{node_id}
+/// 
+/// # Returns
+/// - 0: Success
+/// - -1: Error
+/// 
+/// # Safety
+/// All pointers must be valid C strings. properties_json can be null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn toondb_graph_add_node(
+    ptr: *mut DatabasePtr,
+    namespace: *const c_char,
+    node_id: *const c_char,
+    node_type: *const c_char,
+    properties_json: *const c_char,
+) -> c_int {
+    if ptr.is_null() || namespace.is_null() || node_id.is_null() || node_type.is_null() {
+        return -1;
+    }
+
+    let ns = match unsafe { CStr::from_ptr(namespace) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let id = match unsafe { CStr::from_ptr(node_id) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let ntype = match unsafe { CStr::from_ptr(node_type) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let props = if properties_json.is_null() {
+        "{}".to_string()
+    } else {
+        match unsafe { CStr::from_ptr(properties_json) }.to_str() {
+            Ok(s) => s.to_string(),
+            Err(_) => return -1,
+        }
+    };
+
+    let db = unsafe { &(*ptr).0 };
+    
+    let txn = match db.begin_transaction() {
+        Ok(t) => t,
+        Err(_) => return -1,
+    };
+    
+    let key = format!("_graph/{}/nodes/{}", ns, id);
+    let value = format!(
+        r#"{{"id":"{}","node_type":"{}","properties":{}}}"#,
+        id, ntype, props
+    );
+    
+    if let Err(_) = db.put(txn, key.as_bytes(), value.as_bytes()) {
+        let _ = db.abort(txn);
+        return -1;
+    }
+    
+    match db.commit(txn) {
+        Ok(_) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Add an edge between nodes in the graph overlay.
+/// 
+/// Stores edge as: _graph/{namespace}/edges/{from_id}/{edge_type}/{to_id}
+/// 
+/// # Returns
+/// - 0: Success
+/// - -1: Error
+/// 
+/// # Safety
+/// All pointers must be valid C strings. properties_json can be null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn toondb_graph_add_edge(
+    ptr: *mut DatabasePtr,
+    namespace: *const c_char,
+    from_id: *const c_char,
+    edge_type: *const c_char,
+    to_id: *const c_char,
+    properties_json: *const c_char,
+) -> c_int {
+    if ptr.is_null() || namespace.is_null() || from_id.is_null() 
+        || edge_type.is_null() || to_id.is_null() {
+        return -1;
+    }
+
+    let ns = match unsafe { CStr::from_ptr(namespace) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let from = match unsafe { CStr::from_ptr(from_id) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let etype = match unsafe { CStr::from_ptr(edge_type) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let to = match unsafe { CStr::from_ptr(to_id) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let props = if properties_json.is_null() {
+        "{}".to_string()
+    } else {
+        match unsafe { CStr::from_ptr(properties_json) }.to_str() {
+            Ok(s) => s.to_string(),
+            Err(_) => return -1,
+        }
+    };
+
+    let db = unsafe { &(*ptr).0 };
+    
+    let txn = match db.begin_transaction() {
+        Ok(t) => t,
+        Err(_) => return -1,
+    };
+    
+    let key = format!("_graph/{}/edges/{}/{}/{}", ns, from, etype, to);
+    let value = format!(
+        r#"{{"from_id":"{}","edge_type":"{}","to_id":"{}","properties":{}}}"#,
+        from, etype, to, props
+    );
+    
+    if let Err(_) = db.put(txn, key.as_bytes(), value.as_bytes()) {
+        let _ = db.abort(txn);
+        return -1;
+    }
+    
+    match db.commit(txn) {
+        Ok(_) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Traverse the graph from a starting node.
+/// 
+/// Returns JSON: {"nodes": [...], "edges": [...]}
+/// Caller must free the returned string with toondb_free_string.
+/// 
+/// order: 0=BFS, 1=DFS
+/// 
+/// # Safety
+/// All pointers must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn toondb_graph_traverse(
+    ptr: *mut DatabasePtr,
+    namespace: *const c_char,
+    start_node: *const c_char,
+    max_depth: usize,
+    order: u8,  // 0=BFS, 1=DFS
+    out_len: *mut usize,
+) -> *mut c_char {
+    if ptr.is_null() || namespace.is_null() || start_node.is_null() || out_len.is_null() {
+        return ptr::null_mut();
+    }
+
+    let ns = match unsafe { CStr::from_ptr(namespace) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return ptr::null_mut(),
+    };
+    let start = match unsafe { CStr::from_ptr(start_node) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return ptr::null_mut(),
+    };
+
+    let db = unsafe { &(*ptr).0 };
+    
+    let txn = match db.begin_transaction() {
+        Ok(t) => t,
+        Err(_) => return ptr::null_mut(),
+    };
+    
+    // Collect nodes and edges through traversal
+    let mut visited_nodes = std::collections::HashSet::new();
+    let mut nodes_json = Vec::new();
+    let mut edges_json = Vec::new();
+    
+    // Use queue for BFS, stack for DFS
+    let mut frontier: Vec<(String, usize)> = vec![(start.to_string(), 0)];
+    
+    while let Some((current_node, depth)) = if order == 0 {
+        // BFS: remove from front
+        if frontier.is_empty() { None } else { Some(frontier.remove(0)) }
+    } else {
+        // DFS: remove from back
+        frontier.pop()
+    } {
+        if depth > max_depth || visited_nodes.contains(&current_node) {
+            continue;
+        }
+        visited_nodes.insert(current_node.clone());
+        
+        // Get node data
+        let node_key = format!("_graph/{}/nodes/{}", ns, current_node);
+        if let Ok(Some(node_data)) = db.get(txn, node_key.as_bytes()) {
+            if let Ok(s) = std::str::from_utf8(&node_data) {
+                nodes_json.push(s.to_string());
+            }
+        }
+        
+        // Get outgoing edges
+        let edge_prefix = format!("_graph/{}/edges/{}/", ns, current_node);
+        if let Ok(edges) = db.scan(txn, edge_prefix.as_bytes()) {
+            for (_key, value) in edges {
+                if let Ok(edge_str) = std::str::from_utf8(&value) {
+                    edges_json.push(edge_str.to_string());
+                    
+                    // Extract to_id for traversal
+                    if let Some(to_pos) = edge_str.find(r#""to_id":""#) {
+                        let start_idx = to_pos + r#""to_id":""#.len();
+                        if let Some(end_idx) = edge_str[start_idx..].find('"') {
+                            let to_id = &edge_str[start_idx..start_idx + end_idx];
+                            if !visited_nodes.contains(to_id) {
+                                frontier.push((to_id.to_string(), depth + 1));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    if let Err(_) = db.commit(txn) {
+        return ptr::null_mut();
+    }
+    
+    let result = format!(
+        r#"{{"nodes":[{}],"edges":[{}]}}"#,
+        nodes_json.join(","),
+        edges_json.join(",")
+    );
+    
+    let c_string = match std::ffi::CString::new(result) {
+        Ok(s) => s,
+        Err(_) => return ptr::null_mut(),
+    };
+    
+    unsafe { *out_len = c_string.as_bytes().len() };
+    c_string.into_raw()
+}
+
+// ============================================================================
+// Semantic Cache FFI
+// ============================================================================
+
+/// Store a value in the semantic cache with its embedding.
+/// 
+/// # Returns
+/// - 0: Success
+/// - -1: Error
+/// 
+/// # Safety
+/// All pointers must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn toondb_cache_put(
+    ptr: *mut DatabasePtr,
+    cache_name: *const c_char,
+    key: *const c_char,
+    value: *const c_char,
+    embedding_ptr: *const f32,
+    embedding_len: usize,
+    ttl_seconds: u64,
+) -> c_int {
+    if ptr.is_null() || cache_name.is_null() || key.is_null() 
+        || value.is_null() || embedding_ptr.is_null() {
+        return -1;
+    }
+
+    let cache = match unsafe { CStr::from_ptr(cache_name) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let k = match unsafe { CStr::from_ptr(key) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let v = match unsafe { CStr::from_ptr(value) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let embedding = unsafe { slice::from_raw_parts(embedding_ptr, embedding_len) };
+
+    let db = unsafe { &(*ptr).0 };
+    
+    let txn = match db.begin_transaction() {
+        Ok(t) => t,
+        Err(_) => return -1,
+    };
+    
+    // Compute expiry timestamp
+    let expires_at = if ttl_seconds > 0 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() + ttl_seconds
+    } else {
+        0 // No expiry
+    };
+    
+    // Store cache entry: _cache/{cache_name}/{key_hash}
+    let key_hash = format!("{:016x}", twox_hash::xxh3::hash64(k.as_bytes()));
+    let cache_key = format!("_cache/{}/{}", cache, key_hash);
+    
+    // Serialize embedding as JSON array
+    let embedding_json: Vec<String> = embedding.iter().map(|f| f.to_string()).collect();
+    
+    let cache_value = format!(
+        r#"{{"key":"{}","value":"{}","embedding":[{}],"expires_at":{}}}"#,
+        k, v, embedding_json.join(","), expires_at
+    );
+    
+    if let Err(_) = db.put(txn, cache_key.as_bytes(), cache_value.as_bytes()) {
+        let _ = db.abort(txn);
+        return -1;
+    }
+    
+    match db.commit(txn) {
+        Ok(_) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Look up a value in the semantic cache by embedding similarity.
+/// 
+/// Returns the cached value if similarity >= threshold, null otherwise.
+/// Caller must free the returned string with toondb_free_string.
+/// 
+/// # Safety
+/// All pointers must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn toondb_cache_get(
+    ptr: *mut DatabasePtr,
+    cache_name: *const c_char,
+    query_embedding_ptr: *const f32,
+    embedding_len: usize,
+    threshold: f32,
+    out_len: *mut usize,
+) -> *mut c_char {
+    if ptr.is_null() || cache_name.is_null() || query_embedding_ptr.is_null() || out_len.is_null() {
+        return ptr::null_mut();
+    }
+
+    let cache = match unsafe { CStr::from_ptr(cache_name) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return ptr::null_mut(),
+    };
+    let query = unsafe { slice::from_raw_parts(query_embedding_ptr, embedding_len) };
+
+    let db = unsafe { &(*ptr).0 };
+    
+    let txn = match db.begin_transaction() {
+        Ok(t) => t,
+        Err(_) => return ptr::null_mut(),
+    };
+    
+    let prefix = format!("_cache/{}/", cache);
+    let entries = match db.scan(txn, prefix.as_bytes()) {
+        Ok(e) => e,
+        Err(_) => {
+            let _ = db.abort(txn);
+            return ptr::null_mut();
+        }
+    };
+    
+    let _ = db.commit(txn);
+    
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    
+    let mut best_match: Option<(f32, String)> = None;
+    
+    for (_key, value) in entries {
+        let value_str = match std::str::from_utf8(&value) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        
+        // Parse expires_at
+        if let Some(exp_pos) = value_str.find(r#""expires_at":"#) {
+            let exp_start = exp_pos + r#""expires_at":"#.len();
+            if let Some(exp_end) = value_str[exp_start..].find('}') {
+                let expires_at: u64 = value_str[exp_start..exp_start + exp_end]
+                    .parse()
+                    .unwrap_or(0);
+                if expires_at > 0 && now > expires_at {
+                    continue; // Expired
+                }
+            }
+        }
+        
+        // Parse embedding and compute cosine similarity
+        if let Some(emb_pos) = value_str.find(r#""embedding":["#) {
+            let emb_start = emb_pos + r#""embedding":["#.len();
+            if let Some(emb_end) = value_str[emb_start..].find(']') {
+                let emb_str = &value_str[emb_start..emb_start + emb_end];
+                let cached_embedding: Vec<f32> = emb_str
+                    .split(',')
+                    .filter_map(|s| s.trim().parse().ok())
+                    .collect();
+                
+                if cached_embedding.len() == query.len() {
+                    let similarity = cosine_similarity(query, &cached_embedding);
+                    if similarity >= threshold {
+                        if best_match.is_none() || similarity > best_match.as_ref().unwrap().0 {
+                            // Extract value field
+                            if let Some(val_pos) = value_str.find(r#""value":""#) {
+                                let val_start = val_pos + r#""value":""#.len();
+                                if let Some(val_end) = value_str[val_start..].find('"') {
+                                    let cached_value = &value_str[val_start..val_start + val_end];
+                                    best_match = Some((similarity, cached_value.to_string()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    match best_match {
+        Some((_, value)) => {
+            let c_string = match std::ffi::CString::new(value) {
+                Ok(s) => s,
+                Err(_) => return ptr::null_mut(),
+            };
+            unsafe { *out_len = c_string.as_bytes().len() };
+            c_string.into_raw()
+        }
+        None => ptr::null_mut(),
+    }
+}
+
+/// Compute cosine similarity between two vectors
+fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if norm_a == 0.0 || norm_b == 0.0 {
+        0.0
+    } else {
+        dot / (norm_a * norm_b)
+    }
+}
+
+// ============================================================================
+// Trace Service FFI
+// ============================================================================
+
+/// Start a new trace. Returns trace_id and root_span_id.
+/// 
+/// Caller must free the returned strings with toondb_free_string.
+/// 
+/// # Returns
+/// - 0: Success
+/// - -1: Error
+/// 
+/// # Safety
+/// All pointers must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn toondb_trace_start(
+    ptr: *mut DatabasePtr,
+    name: *const c_char,
+    trace_id_out: *mut *mut c_char,
+    span_id_out: *mut *mut c_char,
+) -> c_int {
+    if ptr.is_null() || name.is_null() || trace_id_out.is_null() || span_id_out.is_null() {
+        return -1;
+    }
+
+    let trace_name = match unsafe { CStr::from_ptr(name) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+
+    let db = unsafe { &(*ptr).0 };
+    
+    // Generate unique IDs
+    let trace_id = format!("trace_{:016x}", rand_u64());
+    let span_id = format!("span_{:016x}", rand_u64());
+    
+    let txn = match db.begin_transaction() {
+        Ok(t) => t,
+        Err(_) => return -1,
+    };
+    
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_micros() as u64;
+    
+    // Store trace: _traces/{trace_id}
+    let trace_key = format!("_traces/{}", trace_id);
+    let trace_value = format!(
+        r#"{{"trace_id":"{}","name":"{}","start_us":{},"root_span_id":"{}"}}"#,
+        trace_id, trace_name, now, span_id
+    );
+    
+    if let Err(_) = db.put(txn, trace_key.as_bytes(), trace_value.as_bytes()) {
+        let _ = db.abort(txn);
+        return -1;
+    }
+    
+    // Store root span: _traces/{trace_id}/spans/{span_id}
+    let span_key = format!("_traces/{}/spans/{}", trace_id, span_id);
+    let span_value = format!(
+        r#"{{"span_id":"{}","name":"{}","start_us":{},"parent_span_id":null,"status":"active"}}"#,
+        span_id, trace_name, now
+    );
+    
+    if let Err(_) = db.put(txn, span_key.as_bytes(), span_value.as_bytes()) {
+        let _ = db.abort(txn);
+        return -1;
+    }
+    
+    if let Err(_) = db.commit(txn) {
+        return -1;
+    }
+    
+    // Return trace_id and span_id
+    let trace_c = match std::ffi::CString::new(trace_id) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let span_c = match std::ffi::CString::new(span_id) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    
+    unsafe {
+        *trace_id_out = trace_c.into_raw();
+        *span_id_out = span_c.into_raw();
+    }
+    
+    0
+}
+
+/// Start a child span within a trace.
+/// 
+/// Caller must free the returned span_id with toondb_free_string.
+/// 
+/// # Safety
+/// All pointers must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn toondb_trace_span_start(
+    ptr: *mut DatabasePtr,
+    trace_id: *const c_char,
+    parent_span_id: *const c_char,
+    name: *const c_char,
+    span_id_out: *mut *mut c_char,
+) -> c_int {
+    if ptr.is_null() || trace_id.is_null() || parent_span_id.is_null() 
+        || name.is_null() || span_id_out.is_null() {
+        return -1;
+    }
+
+    let tid = match unsafe { CStr::from_ptr(trace_id) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let pid = match unsafe { CStr::from_ptr(parent_span_id) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let span_name = match unsafe { CStr::from_ptr(name) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+
+    let db = unsafe { &(*ptr).0 };
+    let span_id = format!("span_{:016x}", rand_u64());
+    
+    let txn = match db.begin_transaction() {
+        Ok(t) => t,
+        Err(_) => return -1,
+    };
+    
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_micros() as u64;
+    
+    let span_key = format!("_traces/{}/spans/{}", tid, span_id);
+    let span_value = format!(
+        r#"{{"span_id":"{}","name":"{}","start_us":{},"parent_span_id":"{}","status":"active"}}"#,
+        span_id, span_name, now, pid
+    );
+    
+    if let Err(_) = db.put(txn, span_key.as_bytes(), span_value.as_bytes()) {
+        let _ = db.abort(txn);
+        return -1;
+    }
+    
+    if let Err(_) = db.commit(txn) {
+        return -1;
+    }
+    
+    let span_c = match std::ffi::CString::new(span_id) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    
+    unsafe { *span_id_out = span_c.into_raw() };
+    0
+}
+
+/// End a span and record its duration.
+/// 
+/// status: 0=unset, 1=ok, 2=error
+/// 
+/// # Returns
+/// Duration in microseconds on success, -1 on error.
+/// 
+/// # Safety
+/// All pointers must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn toondb_trace_span_end(
+    ptr: *mut DatabasePtr,
+    trace_id: *const c_char,
+    span_id: *const c_char,
+    status: u8,
+) -> i64 {
+    if ptr.is_null() || trace_id.is_null() || span_id.is_null() {
+        return -1;
+    }
+
+    let tid = match unsafe { CStr::from_ptr(trace_id) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let sid = match unsafe { CStr::from_ptr(span_id) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+
+    let db = unsafe { &(*ptr).0 };
+    
+    let txn = match db.begin_transaction() {
+        Ok(t) => t,
+        Err(_) => return -1,
+    };
+    
+    let span_key = format!("_traces/{}/spans/{}", tid, sid);
+    
+    // Read current span
+    let span_data = match db.get(txn, span_key.as_bytes()) {
+        Ok(Some(data)) => data,
+        _ => {
+            let _ = db.abort(txn);
+            return -1;
+        }
+    };
+    
+    let span_str = match std::str::from_utf8(&span_data) {
+        Ok(s) => s,
+        Err(_) => {
+            let _ = db.abort(txn);
+            return -1;
+        }
+    };
+    
+    // Parse start_us
+    let start_us = if let Some(pos) = span_str.find(r#""start_us":"#) {
+        let start = pos + r#""start_us":"#.len();
+        if let Some(end) = span_str[start..].find(',') {
+            span_str[start..start + end].parse().unwrap_or(0u64)
+        } else {
+            0u64
+        }
+    } else {
+        0u64
+    };
+    
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_micros() as u64;
+    
+    let duration_us = now.saturating_sub(start_us);
+    let status_str = match status {
+        1 => "ok",
+        2 => "error",
+        _ => "unset",
+    };
+    
+    // Update span with end time and duration
+    let new_span = span_str
+        .replace(r#""status":"active""#, &format!(r#""status":"{}","end_us":{},"duration_us":{}"#, status_str, now, duration_us));
+    
+    if let Err(_) = db.put(txn, span_key.as_bytes(), new_span.as_bytes()) {
+        let _ = db.abort(txn);
+        return -1;
+    }
+    
+    if let Err(_) = db.commit(txn) {
+        return -1;
+    }
+    
+    duration_us as i64
+}
+
+/// Generate a pseudo-random u64 (simple XorShift for trace IDs)
+fn rand_u64() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static STATE: AtomicU64 = AtomicU64::new(0x853c49e6748fea9b);
+    
+    let mut s = STATE.load(Ordering::Relaxed);
+    if s == 0 {
+        s = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+    }
+    s ^= s >> 12;
+    s ^= s << 25;
+    s ^= s >> 27;
+    STATE.store(s, Ordering::Relaxed);
+    s.wrapping_mul(0x2545F4914F6CDD1D)
+}

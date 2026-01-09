@@ -112,6 +112,17 @@ pub enum TokenKind {
     If,
     Exists,
 
+    // Keywords - Conflict/Upsert (Dialect Support)
+    Ignore,    // MySQL: INSERT IGNORE
+    Replace,   // SQLite: INSERT OR REPLACE
+    Conflict,  // PostgreSQL: ON CONFLICT
+    Do,        // PostgreSQL: ON CONFLICT DO
+    Nothing,   // PostgreSQL: DO NOTHING
+    Duplicate, // MySQL: ON DUPLICATE KEY UPDATE
+    Abort,     // SQLite: INSERT OR ABORT
+    Fail,      // SQLite: INSERT OR FAIL
+    Returning, // PostgreSQL/SQLite: RETURNING clause
+
     // Keywords - DML
     Select,
     Insert,
@@ -391,6 +402,16 @@ impl TokenKind {
                 | TokenKind::Numeric
                 | TokenKind::JsonExtract
                 | TokenKind::JsonSet
+                // Conflict/Upsert keywords
+                | TokenKind::Ignore
+                | TokenKind::Replace
+                | TokenKind::Conflict
+                | TokenKind::Do
+                | TokenKind::Nothing
+                | TokenKind::Duplicate
+                | TokenKind::Abort
+                | TokenKind::Fail
+                | TokenKind::Returning
         )
     }
 
@@ -477,6 +498,16 @@ impl TokenKind {
             "AVG" => Some(TokenKind::Avg),
             "MIN" => Some(TokenKind::Min),
             "MAX" => Some(TokenKind::Max),
+            // Conflict/Upsert keywords
+            "IGNORE" => Some(TokenKind::Ignore),
+            "REPLACE" => Some(TokenKind::Replace),
+            "CONFLICT" => Some(TokenKind::Conflict),
+            "DO" => Some(TokenKind::Do),
+            "NOTHING" => Some(TokenKind::Nothing),
+            "DUPLICATE" => Some(TokenKind::Duplicate),
+            "ABORT" => Some(TokenKind::Abort),
+            "FAIL" => Some(TokenKind::Fail),
+            "RETURNING" => Some(TokenKind::Returning),
             // Types
             "INT" => Some(TokenKind::Int),
             "INTEGER" => Some(TokenKind::IntegerKw),

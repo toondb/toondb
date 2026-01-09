@@ -58,6 +58,8 @@ pub struct Lexer<'a> {
     column: usize,
     tokens: Vec<Token>,
     errors: Vec<LexError>,
+    /// Counter for `?` style placeholders (auto-incrementing)
+    placeholder_counter: u32,
 }
 
 impl<'a> Lexer<'a> {
@@ -71,6 +73,7 @@ impl<'a> Lexer<'a> {
             column: 1,
             tokens: Vec::new(),
             errors: Vec::new(),
+            placeholder_counter: 0,
         }
     }
 
@@ -159,7 +162,16 @@ impl<'a> Lexer<'a> {
             '%' => self.add_token(TokenKind::Percent, start, start_line, start_col),
             '&' => self.add_token(TokenKind::BitAnd, start, start_line, start_col),
             '~' => self.add_token(TokenKind::BitNot, start, start_line, start_col),
-            '?' => self.add_token(TokenKind::QuestionMark, start, start_line, start_col),
+            '?' => {
+                // Auto-incrementing placeholder for JDBC/ODBC style ?
+                self.placeholder_counter += 1;
+                let span = self.make_span(start, start_line, start_col);
+                self.tokens.push(Token::new(
+                    TokenKind::Placeholder(self.placeholder_counter),
+                    span,
+                    "?",
+                ));
+            }
             '@' => self.add_token(TokenKind::At, start, start_line, start_col),
 
             // Two-character tokens

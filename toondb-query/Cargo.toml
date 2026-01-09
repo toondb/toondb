@@ -33,4 +33,4 @@ regex = "1.10"
 
 [dev-dependencies]
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+# Tokio removed - query engine tests are sync-first
