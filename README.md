@@ -49,10 +49,16 @@ Most "agent stacks" still glue together:
 ### ✅ Database fundamentals
 
 * **SQL support** with full SQL-92 syntax (SELECT, INSERT, UPDATE, DELETE, JOINs)
+  * **AST-based query executor** (v0.3.5) - unified SQL processing with dialect normalization
+  * **Multi-dialect support** (v0.3.5) - MySQL, PostgreSQL, SQLite compatibility
+  * **Idempotent DDL** (v0.3.5) - CREATE TABLE IF NOT EXISTS, DROP TABLE IF EXISTS
 * **ACID transactions** with **MVCC**
 * **WAL durability** + **group commit**
 * **Serializable Snapshot Isolation (SSI)**
 * **Columnar storage** with projection pushdown (read only the columns you need)
+* **Sync-first architecture** (v0.3.5) - async runtime (tokio) is truly optional
+  * ~500KB smaller binaries for embedded use cases
+  * Follows SQLite's design pattern for maximum compatibility
 
 ### ✅ Developer experience
 
@@ -413,6 +419,52 @@ console.log(results);  // [{ id: 'doc1', distance: 0.23 }, ...]
 ---
 
 ## 🏗 Architecture
+
+### Sync-First Design (v0.3.5)
+
+ToonDB follows a **sync-first architecture** similar to SQLite, where the core storage engine uses synchronous I/O and async runtime (tokio) is truly optional:
+
+```text
+┌─────────────────────────────────────────────────────────┐
+│                 SYNC-FIRST CORE                         │
+│  (Zero async dependencies - like SQLite)                │
+├─────────────────────────────────────────────────────────┤
+│  toondb-core      : Core types, TOON format             │
+│  toondb-storage   : Sync I/O (std::fs, std::thread)    │
+│  toondb-query     : SQL parser & executor               │
+│  toondb-kernel    : MVCC, WAL, transactions            │
+│  toondb-index     : B-Tree, HNSW vector index          │
+└─────────────────────────────────────────────────────────┘
+                          │
+                          │ Optional: --features async
+                          ▼
+┌─────────────────────────────────────────────────────────┐
+│                 ASYNC EDGES (Optional)                  │
+│  (Tokio runtime only when explicitly enabled)           │
+├─────────────────────────────────────────────────────────┤
+│  toondb-grpc      : gRPC server (requires tokio)       │
+│  toondb-mcp       : MCP server (sync, no tokio)        │
+│  Client libraries : Optional async support              │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Benefits:**
+- 🎯 **~500KB smaller binaries** for embedded/sync-only builds
+- 🚀 **~40 fewer transitive dependencies** in default builds
+- 📦 **Simpler embedding** - no runtime initialization required
+- ⚡ **Predictable latency** - no executor scheduling jitter
+- 🔧 **Easy testing** - sync tests are simpler to write
+
+**Usage:**
+
+```bash
+# Default: Sync-only (no tokio)
+cargo build --release
+du -h target/release/libtoondb_storage.so  # 732 KB
+
+# With async support when needed
+cargo build --release --features async
+```
 
 ```text
 App / Agent Runtime
