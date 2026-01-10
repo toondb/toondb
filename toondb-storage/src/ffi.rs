@@ -18,6 +18,7 @@ use std::os::raw::{c_char, c_int};
 use std::ptr;
 use std::slice;
 use std::sync::Arc;
+use serde_json::Value;
 
 /// Opaque pointer to Database
 pub struct DatabasePtr(Arc<Database>);
@@ -1813,6 +1814,7 @@ pub unsafe extern "C" fn toondb_cache_get(
 }
 
 /// Compute cosine similarity between two vectors
+/// Returns normalized similarity in [0, 1] range for threshold comparisons
 fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
     let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -1820,7 +1822,10 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     if norm_a == 0.0 || norm_b == 0.0 {
         0.0
     } else {
-        dot / (norm_a * norm_b)
+        let similarity = dot / (norm_a * norm_b);
+        // Normalize from [-1, 1] to [0, 1] for threshold comparisons
+        // This ensures consistent scoring across all SDKs (Python/Node.js/Go)
+        (similarity + 1.0) / 2.0
     }
 }
 
@@ -2098,3 +2103,383 @@ fn rand_u64() -> u64 {
     STATE.store(s, Ordering::Relaxed);
     s.wrapping_mul(0x2545F4914F6CDD1D)
 }
+
+// =========================================================================
+// Vector Index Operations (KV-based, native Rust performance)
+// =========================================================================
+
+/// Create a vector collection for storing embeddings
+/// 
+/// # Returns
+/// - 0: Success (or already exists)
+/// - -1: Error
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn toondb_collection_create(
+    ptr: *mut DatabasePtr,
+    namespace: *const c_char,
+    collection: *const c_char,
+    dimension: usize,
+    dist_type: u8, // 0=Cosine, 1=Euclidean, 2=Dot
+) -> c_int {
+    if ptr.is_null() || namespace.is_null() || collection.is_null() {
+        return -1;
+    }
+    
+    let ns = match unsafe { CStr::from_ptr(namespace) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let col = match unsafe { CStr::from_ptr(collection) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    
+    let db = unsafe { &(*ptr).0 };
+    let txn = match db.begin_transaction() {
+        Ok(t) => t,
+        Err(_) => return -1,
+    };
+    
+    // Store collection config
+    let config_key = format!("{}/_collections/{}", ns, col);
+    let config_value = format!(
+        r#"{{"dimension":{},"metric":{}}}"#,
+        dimension, dist_type
+    );
+    
+    if let Err(_) = db.put(txn, config_key.as_bytes(), config_value.as_bytes()) {
+        let _ = db.abort(txn);
+        return -1;
+    }
+    
+    match db.commit(txn) {
+        Ok(_) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Insert a vector into a collection
+/// 
+/// # Returns
+/// - 0: Success
+/// - -1: Error
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn toondb_collection_insert(
+    ptr: *mut DatabasePtr,
+    namespace: *const c_char,
+    collection: *const c_char,
+    id: *const c_char,
+    vector_ptr: *const f32,
+    vector_len: usize,
+    metadata_json: *const c_char, // Optional JSON metadata
+) -> c_int {
+    if ptr.is_null() || namespace.is_null() || collection.is_null() 
+        || id.is_null() || vector_ptr.is_null() {
+        return -1;
+    }
+    
+    let ns = match unsafe { CStr::from_ptr(namespace) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let col = match unsafe { CStr::from_ptr(collection) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let doc_id = match unsafe { CStr::from_ptr(id) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let vector = unsafe { slice::from_raw_parts(vector_ptr, vector_len) };
+    
+    let metadata = if !metadata_json.is_null() {
+        match unsafe { CStr::from_ptr(metadata_json) }.to_str() {
+            Ok(s) => s.to_string(),
+            Err(_) => "{}".to_string(),
+        }
+    } else {
+        "{}".to_string()
+    };
+    
+    let db = unsafe { &(*ptr).0 };
+    let txn = match db.begin_transaction() {
+        Ok(t) => t,
+        Err(_) => return -1,
+    };
+    
+    // Store vector doc
+    let vec_key = format!("{}/collections/{}/vectors/{}", ns, col, doc_id);
+    let vec_json: Vec<String> = vector.iter().map(|f| f.to_string()).collect();
+    let vec_value = format!(
+        r#"{{"id":"{}","vector":[{}],"metadata":{}}}"#,
+        doc_id, vec_json.join(","), metadata
+    );
+    
+    if let Err(_) = db.put(txn, vec_key.as_bytes(), vec_value.as_bytes()) {
+        let _ = db.abort(txn);
+        return -1;
+    }
+    
+    match db.commit(txn) {
+        Ok(_) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// C-compatible search result
+#[repr(C)]
+pub struct CSearchResult {
+    pub id_ptr: *mut c_char,
+    pub score: f32,
+    pub metadata_ptr: *mut c_char,
+}
+
+/// Search a collection for nearest vectors
+/// 
+/// # Returns
+/// - >= 0: Number of results
+/// - -1: Error
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn toondb_collection_search(
+    ptr: *mut DatabasePtr,
+    namespace: *const c_char,
+    collection: *const c_char,
+    query_ptr: *const f32,
+    query_len: usize,
+    k: usize,
+    results_out: *mut CSearchResult,
+) -> c_int {
+    if ptr.is_null() || namespace.is_null() || collection.is_null() 
+        || query_ptr.is_null() || results_out.is_null() {
+        return -1;
+    }
+    
+    let ns = match unsafe { CStr::from_ptr(namespace) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let col = match unsafe { CStr::from_ptr(collection) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let query = unsafe { slice::from_raw_parts(query_ptr, query_len) };
+    
+    let db = unsafe { &(*ptr).0 };
+    let txn = match db.begin_transaction() {
+        Ok(t) => t,
+        Err(_) => return -1,
+    };
+    
+    // Scan all vectors in collection
+    let prefix = format!("{}/collections/{}/vectors/", ns, col);
+    let entries = match db.scan(txn, prefix.as_bytes()) {
+        Ok(e) => e,
+        Err(_) => {
+            let _ = db.abort(txn);
+            return -1;
+        }
+    };
+    let _ = db.commit(txn);
+    
+    // Compute cosine similarity for each
+    let mut scored: Vec<(f32, String, String)> = Vec::new();
+    
+    for (_key, value) in entries {
+        let value_str = match std::str::from_utf8(&value) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        
+        // Parse vector from JSON
+        if let Some(vec_start) = value_str.find(r#""vector":["#) {
+            let start = vec_start + r#""vector":["#.len();
+            if let Some(end) = value_str[start..].find(']') {
+                let vec_str = &value_str[start..start + end];
+                let doc_vec: Vec<f32> = vec_str
+                    .split(',')
+                    .filter_map(|s| s.trim().parse().ok())
+                    .collect();
+                
+                if doc_vec.len() == query.len() {
+                    let score = cosine_similarity(query, &doc_vec);
+                    
+                    // Extract ID
+                    let id = if let Some(id_pos) = value_str.find(r#""id":""#) {
+                        let id_start = id_pos + r#""id":""#.len();
+                        if let Some(id_end) = value_str[id_start..].find('"') {
+                            value_str[id_start..id_start + id_end].to_string()
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        continue;
+                    };
+                    
+                    // Extract metadata
+                    let metadata = if let Some(meta_pos) = value_str.find(r#""metadata":"#) {
+                        let meta_start = meta_pos + r#""metadata":"#.len();
+                        &value_str[meta_start..value_str.len()-1]
+                    } else {
+                        "{}"
+                    };
+                    
+                    scored.push((score, id, metadata.to_string()));
+                }
+            }
+        }
+    }
+    
+    // Sort by score descending
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    
+    // Return top k
+    let result_count = scored.len().min(k);
+    for (i, (score, id, metadata)) in scored.into_iter().take(k).enumerate() {
+        let c_id = match std::ffi::CString::new(id) {
+            Ok(s) => s.into_raw(),
+            Err(_) => ptr::null_mut(),
+        };
+        let c_meta = match std::ffi::CString::new(metadata) {
+            Ok(s) => s.into_raw(),
+            Err(_) => ptr::null_mut(),
+        };
+        
+        unsafe {
+            (*results_out.add(i)).id_ptr = c_id;
+            (*results_out.add(i)).score = score;
+            (*results_out.add(i)).metadata_ptr = c_meta;
+        }
+    }
+    
+    result_count as c_int
+}
+
+/// Search a collection for keywords (simple term match)
+/// 
+/// # Returns
+/// - >= 0: Number of results
+/// - -1: Error
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn toondb_collection_keyword_search(
+    ptr: *mut DatabasePtr,
+    namespace: *const c_char,
+    collection: *const c_char,
+    query_ptr: *const c_char,
+    k: usize,
+    results_out: *mut CSearchResult,
+) -> c_int {
+    if ptr.is_null() || namespace.is_null() || collection.is_null() 
+        || query_ptr.is_null() || results_out.is_null() {
+        return -1;
+    }
+    
+    let ns = match unsafe { CStr::from_ptr(namespace) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let col = match unsafe { CStr::from_ptr(collection) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let query_str = match unsafe { CStr::from_ptr(query_ptr) }.to_str() {
+        Ok(s) => s.to_lowercase(),
+        Err(_) => return -1,
+    };
+    let terms: Vec<&str> = query_str.split_whitespace().collect();
+    if terms.is_empty() {
+        return 0;
+    }
+    
+    let db = unsafe { &(*ptr).0 };
+    let txn = match db.begin_transaction() {
+        Ok(t) => t,
+        Err(_) => return -1,
+    };
+    
+    // Scan all vectors in collection (we assume vectors & metadata are stored together)
+    let prefix = format!("{}/collections/{}/vectors/", ns, col);
+    let entries = match db.scan(txn, prefix.as_bytes()) {
+        Ok(e) => e,
+        Err(_) => {
+            let _ = db.abort(txn);
+            return -1;
+        }
+    };
+    let _ = db.commit(txn);
+    
+    // Score documents based on term frequency
+    let mut scored: Vec<(f32, String, String)> = Vec::new();
+    
+    for (_key, value) in entries {
+        // Parse whole JSON (robust)
+        let doc: Value = match serde_json::from_slice(&value) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        
+        // Search in metadata string (includes values)
+        let metadata_val = doc.get("metadata");
+        let metadata_str = metadata_val.map(|v| v.to_string()).unwrap_or("{}".to_string());
+        
+        // Also check "content" field if present (fallback compat)
+        let content_str = doc.get("content").and_then(|v| v.as_str()).unwrap_or("");
+        
+        // Combine text to search
+        let search_text = format!("{} {}", metadata_str, content_str).to_lowercase();
+         
+        let mut score = 0.0;
+        for term in &terms {
+            score += search_text.matches(term).count() as f32;
+        }
+        
+        if score > 0.0 {
+            let id = doc.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if id.is_empty() { continue; }
+            
+            scored.push((score, id, metadata_str));
+        }
+    }
+    
+    // Sort by score descending
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    
+    // Return top k
+    let result_count = scored.len().min(k);
+    for (i, (score, id, metadata)) in scored.into_iter().take(k).enumerate() {
+        let c_id = match std::ffi::CString::new(id) {
+            Ok(s) => s.into_raw(),
+            Err(_) => ptr::null_mut(),
+        };
+        let c_meta = match std::ffi::CString::new(metadata) {
+            Ok(s) => s.into_raw(),
+            Err(_) => ptr::null_mut(),
+        };
+        
+        unsafe {
+            (*results_out.add(i)).id_ptr = c_id;
+            (*results_out.add(i)).score = score;
+            (*results_out.add(i)).metadata_ptr = c_meta;
+        }
+    }
+    
+    result_count as c_int
+}
+
+/// Free a search result
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn toondb_search_result_free(result: *mut CSearchResult, count: usize) {
+    if result.is_null() {
+        return;
+    }
+    
+    for i in 0..count {
+        let r = unsafe { &mut *result.add(i) };
+        if !r.id_ptr.is_null() {
+            let _ = unsafe { std::ffi::CString::from_raw(r.id_ptr) };
+        }
+        if !r.metadata_ptr.is_null() {
+            let _ = unsafe { std::ffi::CString::from_raw(r.metadata_ptr) };
+        }
+    }
+}
+
