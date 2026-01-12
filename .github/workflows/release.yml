@@ -215,6 +215,14 @@ jobs:
         run: |
           DRY_RUN="${{ inputs.dry_run }}"
           
+          # Verify token is set
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "❌ ERROR: CARGO_REGISTRY_TOKEN is not set!"
+            echo "Please add CRATES_IO_TOKEN to the sochdb-workflow environment secrets"
+            echo "Go to: https://github.com/sochdb/sochdb/settings/environments"
+            exit 1
+          fi
+          
           publish_crate() {
             local crate=$1
             echo "📦 Publishing $crate..."
