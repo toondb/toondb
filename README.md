@@ -19,11 +19,15 @@
 
 ---
 
-## 🎉 What's New in v0.3.5
+## 🎉 What's New in v0.4.0
+
+### Project Renamed: ToonDB → SochDB
+
+SochDB v0.4.0 marks a major milestone with the project rename from ToonDB to SochDB. All packages, APIs, and types have been updated to reflect this change.
 
 ### Sync-First Architecture: Tokio is Truly Optional
 
-SochDB v0.3.5 adopts a **sync-first core** design, following SQLite's proven architecture pattern. The async runtime (tokio) is now **truly optional** and only required at the edges (gRPC server, async client APIs).
+SochDB v0.4.0 continues with the **sync-first core** design, following SQLite's proven architecture pattern. The async runtime (tokio) is now **truly optional** and only required at the edges (gRPC server, async client APIs).
 
 **Benefits:**
 - **~500KB smaller binaries** for embedded use cases
@@ -102,7 +106,7 @@ const path = await db.traverse('node1', 'node2', { algorithm: 'bfs' });
 await db.close();
 ```
 
-**Migration Guide**: See [docs/RELEASE_NOTES_0.3.5.md](docs/RELEASE_NOTES_0.3.5.md) for complete migration instructions.
+**Migration Guide**: See [docs/RELEASE_NOTES_0.4.0.md](docs/RELEASE_NOTES_0.4.0.md) for complete migration instructions (including rename from ToonDB → SochDB).
 
 ---
 
@@ -962,7 +966,7 @@ Where:
 
 ## 📈 Benchmarks
 
-> **Version**: 0.3.1 | **Benchmark Date**: January 2026 | **Hardware**: Apple M-series (ARM64) | **Embeddings**: Azure OpenAI text-embedding-3-small (1536 dimensions)
+> **Version**: 0.4.0 | **Benchmark Date**: January 2026 | **Hardware**: Apple M-series (ARM64) | **Embeddings**: Azure OpenAI text-embedding-3-small (1536 dimensions)
 
 ### Real-World Vector Search Performance
 

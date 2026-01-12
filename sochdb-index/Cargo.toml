@@ -16,8 +16,8 @@ description = "SochDB indexing (HNSW vector index and related utilities)"
 crate-type = ["lib", "cdylib"]
 
 [dependencies]
-sochdb-core = { version = "0.3.3", path = "../sochdb-core" }
-sochdb-storage = { version = "0.3.3", path = "../sochdb-storage" }
+sochdb-core = { version = "0.4.0", path = "../sochdb-core" }
+sochdb-storage = { version = "0.4.0", path = "../sochdb-storage" }
 dashmap = { workspace = true }
 parking_lot = { workspace = true }
 moka = { workspace = true }  # LRU cache for path resolution

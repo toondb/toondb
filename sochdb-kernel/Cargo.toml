@@ -1,6 +1,6 @@
 [package]
 name = "sochdb-kernel"
-version = "0.3.3"
+version = "0.4.0"
 edition = "2024"
 description = "SochDB Kernel - Minimal ACID core with plugin architecture"
 license = "Apache-2.0"
@@ -14,7 +14,7 @@ wasm-plugins = ["wasmtime", "toml"]
 
 [dependencies]
 # Minimal dependencies - only what's needed for ACID core
-sochdb-core = { version = "0.3.3", path = "../sochdb-core" }
+sochdb-core = { version = "0.4.0", path = "../sochdb-core" }
 thiserror = "2.0"
 parking_lot = "0.12"
 crossbeam-channel = "0.5"
