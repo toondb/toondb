@@ -23,7 +23,7 @@ SQL support is built into all SochDB SDKs:
 pip install sochdb
 
 # Node.js
-npm install @sushanth/sochdb
+npm install @sochdb/sochdb
 
 # Rust (add to Cargo.toml)
 sochdb-client = "0.3.1"
@@ -42,7 +42,7 @@ db = Database("./mydb")
 
 ```typescript
 // TypeScript
-import { Database } from '@sushanth/sochdb';
+import { Database } from '@sochdb/sochdb';
 const db = new Database('./mydb');
 ```
 

@@ -246,8 +246,8 @@ stages:
                 echo "Mode: Production Release"
               fi
               echo ""
-              echo "Package: @sushanth/sochdb"
-              echo "Registry: https://www.npmjs.com/package/@sushanth/sochdb"
+              echo "Package: @sochdb/sochdb"
+              echo "Registry: https://www.npmjs.com/package/@sochdb/sochdb"
               echo ""
               echo "========================================"
             displayName: 'Release summary'

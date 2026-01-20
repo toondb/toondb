@@ -68,7 +68,7 @@ fmt.Printf("Tokens: %d/%d\n", result.TotalTokens, result.BudgetTokens)
 ### TypeScript/Node.js
 
 ```typescript
-import { ContextQuery, DeduplicationStrategy } from '@sushanth/sochdb';
+import { ContextQuery, DeduplicationStrategy } from '@sochdb/sochdb';
 
 const result = await new ContextQuery(db, 'documents')
   .addVectorQuery(embedding, 0.7)
@@ -125,7 +125,7 @@ result = (
 ### Node.js (with tiktoken)
 
 ```typescript
-import { TokenEstimator } from '@sushanth/sochdb';
+import { TokenEstimator } from '@sochdb/sochdb';
 
 const estimator = TokenEstimator.tiktoken('gpt-4');
 

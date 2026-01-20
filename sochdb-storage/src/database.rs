@@ -855,6 +855,38 @@ impl Database {
         Self::open_with_config(path, DatabaseConfig::default())
     }
 
+    /// Open without locking (for testing crash recovery scenarios)
+    ///
+    /// # Safety
+    /// This should ONLY be used in tests that simulate crashes by forgetting
+    /// the storage instance. In production, always use `open()`.
+    #[cfg(test)]
+    pub fn open_without_lock<P: AsRef<Path>>(path: P) -> Result<Arc<Self>> {
+        let path = path.as_ref().to_path_buf();
+        let config = DatabaseConfig::default();
+
+        let storage = Arc::new(DurableStorage::open_without_lock(&path)?);
+
+        let index_registry = Arc::new(TableIndexRegistry::with_default_policy(
+            config.default_index_policy,
+        ));
+
+        let db = Arc::new(Self {
+            path: path.clone(),
+            storage,
+            catalog: Arc::new(RwLock::new(Catalog::new("sochdb"))),
+            tables: DashMap::new(),
+            packed_schemas: DashMap::new(),
+            index_registry,
+            config,
+            stats: DatabaseStats::new(),
+            shutdown: AtomicU64::new(0),
+        });
+
+        db.recover()?;
+        Ok(db)
+    }
+
     /// Open with custom configuration
     pub fn open_with_config<P: AsRef<Path>>(path: P, config: DatabaseConfig) -> Result<Arc<Self>> {
         let path = path.as_ref().to_path_buf();
@@ -2367,7 +2399,10 @@ mod tests {
 
         // Write and commit
         {
-            let db = Database::open(dir.path()).unwrap();
+            // Use open_without_lock for crash simulation tests
+            let db = Database::open_without_lock(dir.path()).unwrap();
+            // Set sync mode to FULL to ensure data is persisted before "crash"
+            db.storage.set_sync_mode(2);
             let txn = db.begin_transaction().unwrap();
             db.put(txn, b"persist", b"this").unwrap();
             db.commit(txn).unwrap();
@@ -2377,7 +2412,7 @@ mod tests {
 
         // Reopen - should recover
         {
-            let db = Database::open(dir.path()).unwrap();
+            let db = Database::open_without_lock(dir.path()).unwrap();
             let txn = db.begin_transaction().unwrap();
             let val = db.get(txn, b"persist").unwrap();
             assert_eq!(val, Some(b"this".to_vec()));

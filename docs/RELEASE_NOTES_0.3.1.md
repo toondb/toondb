@@ -63,7 +63,7 @@ pip install sochdb  # Works without analytics
 
 **JavaScript SDK:**
 ```javascript
-import { Database, captureError } from '@sushanth/sochdb';
+import { Database, captureError } from '@sochdb/sochdb';
 
 // Analytics automatically tracks database_opened
 const db = await Database.open('./mydb');
@@ -78,7 +78,7 @@ try {
 
 Installation:
 ```bash
-npm install @sushanth/sochdb
+npm install @sochdb/sochdb
 # posthog-node is optionalDependency (works without it)
 ```
 
@@ -155,7 +155,7 @@ pip install sochdb[analytics]==0.3.1
 ### JavaScript / Node.js
 
 ```bash
-npm install @sushanth/sochdb@0.3.1
+npm install @sochdb/sochdb@0.3.1
 ```
 
 ### Rust

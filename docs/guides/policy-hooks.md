@@ -67,7 +67,7 @@ err := policy.Put([]byte("users/alice"), []byte("data"), map[string]string{
 ### TypeScript/Node.js
 
 ```typescript
-import { Database, PolicyEngine, PolicyAction } from '@sushanth/sochdb';
+import { Database, PolicyEngine, PolicyAction } from '@sochdb/sochdb';
 
 const db = await Database.open('./agent_data');
 const policy = new PolicyEngine(db);

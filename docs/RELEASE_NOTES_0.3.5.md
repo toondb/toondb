@@ -219,7 +219,7 @@ db.create_index("embeddings", dimension=384)
 Full TypeScript support for graph operations previously only available in Python:
 
 ```typescript
-import { Database } from '@sushanth/sochdb';
+import { Database } from '@sochdb/sochdb';
 
 const db = await Database.open('./my_db');
 
@@ -380,7 +380,7 @@ db.insert_vectors("vectors", ["doc1"], [embedding])
 // Previously: only available in Python
 // Now: full TypeScript support
 
-import { Database } from '@sushanth/sochdb';
+import { Database } from '@sochdb/sochdb';
 
 const db = await Database.open('./my_db');
 await db.addNode('node1', { attr: 'value' });
@@ -476,7 +476,7 @@ None in this release. All existing APIs remain supported.
 
 ## Resources
 
-- **Documentation**: [https://docs.sochdb.dev](https://docs.sochdb.dev)
+- **Documentation**: [https://sochdb.dev](https://sochdb.dev)
 - **GitHub**: [https://github.com/sochdb/sochdb](https://github.com/sochdb/sochdb)
 - **Benchmarks**: [sochdb-benchmarks](https://github.com/sochdb/sochdb-benchmarks)
 - **Discord**: [Community chat](https://discord.gg/sochdb)

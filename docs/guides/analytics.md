@@ -71,7 +71,7 @@ print(f"Analytics disabled: {is_analytics_disabled()}")
 
 #### JavaScript/TypeScript
 ```typescript
-import { isAnalyticsDisabled } from '@sushanth/sochdb';
+import { isAnalyticsDisabled } from '@sochdb/sochdb';
 console.log(`Analytics disabled: ${isAnalyticsDisabled()}`);
 ```
 

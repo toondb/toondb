@@ -31,13 +31,13 @@ db.close()
 ## Node.js / TypeScript SDK
 
 ```bash
-npm install @sushanth/sochdb
+npm install @sochdb/sochdb
 ```
 
 ### Verify Installation
 
 ```typescript
-import { SochDatabase } from '@sushanth/sochdb';
+import { SochDatabase } from '@sochdb/sochdb';
 
 const db = new SochDatabase('./test_db');
 await db.put('test', 'hello');

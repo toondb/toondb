@@ -80,7 +80,7 @@ path, _ := graph.ShortestPath("user_1", "msg_1", 10, nil)
 ### TypeScript/Node.js
 
 ```typescript
-import { Database, GraphOverlay, EdgeDirection } from '@sushanth/sochdb';
+import { Database, GraphOverlay, EdgeDirection } from '@sochdb/sochdb';
 
 const db = await Database.open('./agent_memory');
 const graph = new GraphOverlay(db, 'agent_001');

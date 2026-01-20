@@ -85,11 +85,11 @@ db.close()
 <TabItem value="nodejs" label="Node.js">
 
 ```bash
-npm install @sushanth/sochdb
+npm install @sochdb/sochdb
 ```
 
 ```typescript
-import { Database } from '@sushanth/sochdb';
+import { Database } from '@sochdb/sochdb';
 
 const db = await Database.open('./my_app_db');
 

@@ -213,7 +213,7 @@ for content, score in results:
 ## JavaScript/TypeScript SDK
 
 ```typescript
-import { VectorIndex } from '@sushanth/sochdb';
+import { VectorIndex } from '@sochdb/sochdb';
 
 // Create HNSW index
 const index = new VectorIndex({

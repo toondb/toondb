@@ -88,7 +88,7 @@ Ok(())
 ### TypeScript/Node.js
 
 ```typescript
-import { Database } from '@sushanth/sochdb';
+import { Database } from '@sochdb/sochdb';
 
 const db = new Database('./mydb');
 

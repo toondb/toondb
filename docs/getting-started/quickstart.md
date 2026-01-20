@@ -29,7 +29,7 @@ pip install sochdb-client
 ### Node.js / TypeScript
 
 ```bash
-npm install @sushanth/sochdb
+npm install @sochdb/sochdb
 ```
 
 ### Rust
@@ -81,7 +81,7 @@ db.close()
 ### Node.js / TypeScript
 
 ```typescript
-import { SochDatabase } from '@sushanth/sochdb';
+import { SochDatabase } from '@sochdb/sochdb';
 
 // Open database
 const db = new SochDatabase('./my_first_db');
@@ -160,7 +160,7 @@ python -c "from sochdb import Database; print('SochDB Python SDK installed!')"
 ### Node.js
 
 ```bash
-node -e "const {SochDatabase} = require('@sushanth/sochdb'); console.log('SochDB Node.js SDK installed!')"
+node -e "const {SochDatabase} = require('@sochdb/sochdb'); console.log('SochDB Node.js SDK installed!')"
 ```
 
 ### Go

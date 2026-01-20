@@ -1,9 +1,9 @@
 [package]
 name = "sochdb-python"
-version.workspace = true
-edition.workspace = true
-authors.workspace = true
-license.workspace = true
+version = "0.4.1"
+edition = "2024"
+authors = ["Sushanth <sushanth@sochdb.dev>"]
+license = "Apache-2.0"
 description = "SochDB Python native extension with PyO3 - zero-copy vector operations"
 
 [lib]
@@ -15,6 +15,7 @@ crate-type = ["cdylib"]
 sochdb-index = { path = "../sochdb-index" }
 sochdb-core = { path = "../sochdb-core", features = ["analytics"] }
 sochdb-storage = { path = "../sochdb-storage" }
+sochdb = { path = "../sochdb-client" }
 
 # PyO3 bindings
 pyo3 = { version = "0.24", features = ["extension-module", "abi3-py39"] }
@@ -29,13 +30,13 @@ ndarray = { version = "0.15", features = ["rayon"] }
 rayon = "1.10"
 
 # Logging
-tracing = { workspace = true }
+tracing = "0.1"
 
 # Error handling
-thiserror = { workspace = true }
+thiserror = "1.0"
 
 [dev-dependencies]
-tempfile = { workspace = true }
+tempfile = "3.15"
 
 [build-dependencies]
 pyo3-build-config = "0.24"

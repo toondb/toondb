@@ -96,7 +96,7 @@ result, err := dispatcher.Invoke(context.Background(), "code_exec", sochdb.Categ
 ### TypeScript/Node.js
 
 ```typescript
-import { Database, ToolDispatcher, ToolCategory, RoutingStrategy } from '@sushanth/sochdb';
+import { Database, ToolDispatcher, ToolCategory, RoutingStrategy } from '@sochdb/sochdb';
 
 const db = await Database.open('./agent_data');
 const dispatcher = new ToolDispatcher(db);

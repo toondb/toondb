@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.1] - 2026-01-19
+
+### Added
+
+#### 🔒 Concurrency Safety (Critical Fix)
+
+This release addresses the **66.5% data loss** issue from concurrent multi-process access by implementing comprehensive database locking and fencing mechanisms.
+
+- **Advisory File Locking (P0)** — Cross-platform exclusive database access
+  - POSIX `flock()` on Unix, `LockFileEx()` on Windows
+  - New `DatabaseLock` and `RwDatabaseLock` types in `sochdb-storage/lock.rs`
+  - Stale lock detection with PID tracking
+  - Configurable timeout and retry via `LockConfig`
+  - Lock acquired automatically in `DurableStorage::open_with_full_config()`
+
+- **WAL Sequence Fencing (P0)** — Split-brain detection
+  - New 64-byte `WalHeader` with magic, epoch, and writer_id (UUID)
+  - Epoch-based fencing prevents stale writers from corrupting data
+  - CRC chain verification for entry integrity
+  - New `FencedWal` type in `sochdb-storage/wal_fencing.rs`
+
+- **Reader-Writer Lock Protocol (P1)** — Multiple readers OR single writer
+  - `RwDatabaseLock` supports concurrent reads with exclusive writes
+  - Uses `.write_lock` file for writer exclusivity
+
+- **Lock Timeout & Deadlock Detection (P1)** — Robust error handling
+  - `LockConfig` with `timeout` and `retry_interval` settings
+  - Stale lock cleanup when holder PID no longer exists
+  - New error types: `LockError`, `DatabaseLocked`, `EpochMismatch`, `SplitBrain`
+
+- **Connection Mode Enforcement (P2)** — Type-safe read-only connections
+  - New `ReadOnlyConnection` type with compile-time write prevention
+  - `ReadableConnection` and `WritableConnection` traits
+  - `ConnectionModeClient` enum for runtime mode tracking
+
+#### 📦 SDK Updates
+
+- **Python SDK v0.4.1**
+  - New error types: `LockError`, `DatabaseLockedError`, `LockTimeoutError`, `EpochMismatchError`, `SplitBrainError`
+  - New error codes (10xxx range) for lock/concurrency errors
+  - Updated `from_rust_error()` mapping for new error types
+
+- **Node.js SDK v0.4.1**
+  - New `ErrorCode` enum with lock error codes
+  - New error classes: `LockError`, `DatabaseLockedError`, `LockTimeoutError`, `EpochMismatchError`, `SplitBrainError`
+  - All errors now include `code`, `remediation` properties
+
+- **Go SDK v0.4.1**
+  - New sentinel errors: `ErrDatabaseLocked`, `ErrLockTimeout`, `ErrEpochMismatch`, `ErrSplitBrain`
+  - New error types: `DatabaseLockedError`, `LockTimeoutError`, `EpochMismatchError`, `SplitBrainError`
+  - Implements `errors.Is()` for sentinel matching
+
+### Fixed
+
+- Crash recovery tests now properly release locks before reopening database
+- Added `open_without_lock()` test helper for crash simulation scenarios
+
+---
+
 ## [Unreleased]
 
 ### Added

@@ -17,6 +17,6 @@ keywords:
   - columnar-storage
 license: Apache-2.0
 repository-code: "https://github.com/sochdb/sochdb"
-url: "https://docs.sochdb.dev"
+url: "https://sochdb.dev"
 type: software
 date-released: 2026-01-01

@@ -8,7 +8,7 @@
  * - Prefix scan queries
  */
 
-import { Database } from '@sushanth/sochdb';
+import { Database } from '@sochdb/sochdb';
 
 async function main() {
   // Open or create a database

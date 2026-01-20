@@ -115,7 +115,7 @@ pip install sochdb-client
 
 ### Node.js / TypeScript
 ```bash
-npm install @sushanth/sochdb
+npm install @sochdb/sochdb
 ```
 
 ### Go
@@ -133,7 +133,7 @@ sochdb = "0.2.9"
 
 ## 📚 Resources
 
-- **Documentation**: [docs.sochdb.dev](https://docs.sochdb.dev)
+- **Documentation**: [sochdb.dev](https://sochdb.dev)
 - **Benchmarks**: See [benchmarks/BENCHMARK_RESULTS_2024-12-27.md](../benchmarks/BENCHMARK_RESULTS_2024-12-27.md)
 - **SDK Guides**: 
   - [Go SDK Guide](guides/go-sdk.md)

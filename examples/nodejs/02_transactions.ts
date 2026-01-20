@@ -7,7 +7,7 @@
  * - Error handling and rollback
  */
 
-import { Database } from '@sushanth/sochdb';
+import { Database } from '@sochdb/sochdb';
 
 async function main() {
   const db = await Database.open('./txn_example_db');

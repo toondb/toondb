@@ -84,6 +84,7 @@ pub mod ipc; // IPC Protocol with multiplexing (mm.md Task 7.1)
 #[cfg(unix)]
 pub mod ipc_server; // Unix Socket IPC Server (Task 3)
 pub mod learned_index_integration;
+pub mod lock; // Advisory file locking for database exclusivity
 pub mod lscs;
 pub mod mvcc_new;
 pub mod mvcc_snapshot;
@@ -95,6 +96,7 @@ pub mod streaming_iterator; // Streaming Iterator Architecture (mm.md Task 4)
 pub mod transaction; // Unified Transaction Coordinator trait and types
 pub mod txn_arena; // Transaction-scoped arena with zero-copy key/value plumbing
 pub mod txn_wal;
+pub mod wal_fencing; // Epoch-based WAL fencing for split-brain detection
 pub mod wal_integration;
 pub mod zero_copy_safety; // Zero-Copy Validation Layer (Task 5) // FFI bindings for Python SDK
 

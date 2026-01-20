@@ -985,4 +985,4 @@ pub fn version_info() -> VersionInfo {
 
 ---
 
-*For the latest documentation, see [docs.sochdb.dev](https://docs.sochdb.dev)*
+*For the latest documentation, see [sochdb.dev](https://sochdb.dev)*

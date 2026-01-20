@@ -5,7 +5,7 @@
 # Single pipeline that releases all SDK packages atomically:
 #   - crates.io: sochdb (Rust)
 #   - PyPI: sochdb-client (Python)
-#   - npm: @sushanth/sochdb (JavaScript)
+#   - npm: @sochdb/sochdb (JavaScript)
 #   - Go modules: github.com/sochdb/sochdb-go (Go)
 #
 # Principle: When version changes, it changes everywhere.
@@ -456,7 +456,7 @@ stages:
               echo "Packages:"
               echo "  - crates.io: sochdb"
               echo "  - PyPI: sochdb-client"
-              echo "  - npm: @sushanth/sochdb"
+              echo "  - npm: @sochdb/sochdb"
               echo "  - Go modules: github.com/sochdb/sochdb-go"
               echo ""
               echo "========================================"

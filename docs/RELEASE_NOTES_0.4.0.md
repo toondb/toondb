@@ -134,7 +134,7 @@ All crates updated to version 0.4.0:
 ## 🔗 Links
 
 - **Repository**: https://github.com/sochdb/sochdb
-- **Documentation**: https://docs.sochdb.dev
+- **Documentation**: https://sochdb.dev
 - **Homepage**: https://sochdb.dev
 - **Crates.io**: https://crates.io/crates/sochdb
 

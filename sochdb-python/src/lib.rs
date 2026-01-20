@@ -33,13 +33,15 @@
 //! with GIL release during the expensive HNSW work.
 
 use pyo3::prelude::*;
-use pyo3::exceptions::{PyValueError, PyRuntimeError};
+use pyo3::exceptions::{PyValueError, PyRuntimeError, PyIOError};
+use pyo3::types::PyBytes;
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2, PyUntypedArrayMethods, PyArrayMethods, ToPyArray, IntoPyArray};
 use numpy::ndarray::{Array1, Array2};
 use std::sync::Arc;
 
 use sochdb_index::hnsw::{HnswConfig, HnswIndex, DistanceMetric};
 use sochdb_index::vector_quantized::Precision;
+use ::sochdb::connection::{DurableConnection, ConnectionConfig};
 
 // =============================================================================
 // Performance Guardrails (Task 6)
@@ -607,6 +609,363 @@ fn is_safe_mode() -> bool {
 }
 
 // =============================================================================
+// Database - Full Key-Value API (Task 5)
+// =============================================================================
+
+/// SochDB Database connection with full ACID transaction support.
+///
+/// This provides the full key-value storage API with WAL durability,
+/// MVCC isolation, and crash recovery.
+///
+/// Example:
+///     >>> import sochdb
+///     >>> 
+///     >>> # Open database (creates if not exists)
+///     >>> db = sochdb.Database.open("./my_db")
+///     >>> 
+///     >>> # Simple key-value operations
+///     >>> db.put(b"user:1", b'{"name": "Alice"}')
+///     >>> value = db.get(b"user:1")
+///     >>> print(value)  # b'{"name": "Alice"}'
+///     >>> 
+///     >>> # Transaction API
+///     >>> txn = db.begin()
+///     >>> db.put(b"user:2", b'{"name": "Bob"}', txn=txn)
+///     >>> db.put(b"user:3", b'{"name": "Charlie"}', txn=txn)
+///     >>> db.commit(txn)
+///     >>> 
+///     >>> # Scan by prefix
+///     >>> users = db.scan(b"user:")
+///     >>> for key, value in users:
+///     ...     print(f"{key}: {value}")
+#[pyclass(name = "Database")]
+pub struct PyDatabase {
+    inner: DurableConnection,
+}
+
+#[pymethods]
+impl PyDatabase {
+    /// Open a database at the given path.
+    ///
+    /// Creates the database if it doesn't exist.
+    /// Performs crash recovery if needed.
+    ///
+    /// Args:
+    ///     path: Path to the database directory.
+    ///     config: Optional configuration preset:
+    ///         - "default": Balanced durability and performance
+    ///         - "throughput": Optimized for high write throughput
+    ///         - "latency": Optimized for low commit latency
+    ///         - "durable": Maximum durability (fsync every commit)
+    ///
+    /// Returns:
+    ///     Database connection handle.
+    ///
+    /// Example:
+    ///     >>> db = Database.open("./my_db")
+    ///     >>> db = Database.open("./my_db", config="throughput")
+    #[staticmethod]
+    #[pyo3(signature = (path, config=None))]
+    pub fn open(path: &str, config: Option<&str>) -> PyResult<Self> {
+        let conn_config = match config {
+            Some("throughput") | Some("fast") => ConnectionConfig::throughput_optimized(),
+            Some("latency") | Some("oltp") => ConnectionConfig::latency_optimized(),
+            Some("durable") | Some("safe") => ConnectionConfig::max_durability(),
+            Some("default") | None => ConnectionConfig::default(),
+            Some(other) => {
+                return Err(PyValueError::new_err(format!(
+                    "Unknown config: '{}'. Use 'default', 'throughput', 'latency', or 'durable'",
+                    other
+                )));
+            }
+        };
+        
+        let inner = DurableConnection::open_with_config(path, conn_config)
+            .map_err(|e| PyIOError::new_err(format!("Failed to open database: {}", e)))?;
+        
+        Ok(Self { inner })
+    }
+
+    /// Put a key-value pair.
+    ///
+    /// If no transaction is provided, auto-commits immediately.
+    ///
+    /// Args:
+    ///     key: Key bytes.
+    ///     value: Value bytes.
+    ///     txn: Optional transaction ID from begin().
+    ///
+    /// Example:
+    ///     >>> db.put(b"key", b"value")
+    ///     >>> 
+    ///     >>> # Within transaction
+    ///     >>> txn = db.begin()
+    ///     >>> db.put(b"key1", b"val1", txn=txn)
+    ///     >>> db.put(b"key2", b"val2", txn=txn)
+    ///     >>> db.commit(txn)
+    #[pyo3(signature = (key, value, txn=None))]
+    pub fn put(&self, key: &[u8], value: &[u8], txn: Option<u64>) -> PyResult<()> {
+        if txn.is_none() {
+            // Auto-transaction mode: put and commit
+            self.inner.put(key, value)
+                .map_err(|e| PyIOError::new_err(e.to_string()))?;
+            self.inner.commit_txn()
+                .map_err(|e| PyIOError::new_err(e.to_string()))?;
+        } else {
+            // Use existing transaction
+            self.inner.put(key, value)
+                .map_err(|e| PyIOError::new_err(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Get a value by key.
+    ///
+    /// Args:
+    ///     key: Key bytes.
+    ///     txn: Optional transaction ID for consistent reads.
+    ///
+    /// Returns:
+    ///     Value bytes if found, None otherwise.
+    ///
+    /// Example:
+    ///     >>> value = db.get(b"key")
+    ///     >>> if value is not None:
+    ///     ...     print(value.decode())
+    #[pyo3(signature = (key, txn=None))]
+    pub fn get<'py>(&self, py: Python<'py>, key: &[u8], txn: Option<u64>) -> PyResult<Option<Py<PyBytes>>> {
+        let _ = txn; // Transaction context is managed internally
+        match self.inner.get(key) {
+            Ok(Some(v)) => Ok(Some(PyBytes::new(py, &v).into())),
+            Ok(None) => Ok(None),
+            Err(e) => Err(PyIOError::new_err(e.to_string())),
+        }
+    }
+
+    /// Delete a key.
+    ///
+    /// Args:
+    ///     key: Key bytes.
+    ///     txn: Optional transaction ID.
+    ///
+    /// Example:
+    ///     >>> db.delete(b"key")
+    #[pyo3(signature = (key, txn=None))]
+    pub fn delete(&self, key: &[u8], txn: Option<u64>) -> PyResult<()> {
+        if txn.is_none() {
+            self.inner.delete(key)
+                .map_err(|e| PyIOError::new_err(e.to_string()))?;
+            self.inner.commit_txn()
+                .map_err(|e| PyIOError::new_err(e.to_string()))?;
+        } else {
+            self.inner.delete(key)
+                .map_err(|e| PyIOError::new_err(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Scan keys with a prefix.
+    ///
+    /// Args:
+    ///     prefix: Key prefix to scan.
+    ///     txn: Optional transaction ID for consistent reads.
+    ///
+    /// Returns:
+    ///     List of (key, value) tuples.
+    ///
+    /// Example:
+    ///     >>> users = db.scan(b"user:")
+    ///     >>> for key, value in users:
+    ///     ...     print(f"{key.decode()}: {value.decode()}")
+    #[pyo3(signature = (prefix, txn=None))]
+    pub fn scan<'py>(
+        &self,
+        py: Python<'py>,
+        prefix: &[u8],
+        txn: Option<u64>,
+    ) -> PyResult<Vec<(Py<PyBytes>, Py<PyBytes>)>> {
+        let _ = txn;
+        let results = self.inner.scan(prefix)
+            .map_err(|e| PyIOError::new_err(e.to_string()))?;
+        
+        Ok(results
+            .into_iter()
+            .map(|(k, v)| {
+                (PyBytes::new(py, &k).into(), PyBytes::new(py, &v).into())
+            })
+            .collect())
+    }
+
+    /// Begin a new transaction.
+    ///
+    /// Returns a transaction ID that can be passed to put/get/delete/commit/abort.
+    ///
+    /// Returns:
+    ///     Transaction ID (integer).
+    ///
+    /// Example:
+    ///     >>> txn = db.begin()
+    ///     >>> try:
+    ///     ...     db.put(b"key1", b"value1", txn=txn)
+    ///     ...     db.put(b"key2", b"value2", txn=txn)
+    ///     ...     db.commit(txn)
+    ///     ... except:
+    ///     ...     db.abort(txn)
+    pub fn begin(&self) -> PyResult<u64> {
+        self.inner.begin_txn()
+            .map_err(|e| PyIOError::new_err(e.to_string()))
+    }
+
+    /// Commit a transaction.
+    ///
+    /// Makes all writes in the transaction durable.
+    ///
+    /// Args:
+    ///     txn: Transaction ID from begin(). If None, commits current transaction.
+    ///
+    /// Returns:
+    ///     Commit timestamp.
+    #[pyo3(signature = (txn=None))]
+    pub fn commit(&self, txn: Option<u64>) -> PyResult<u64> {
+        let _ = txn; // Transaction is tracked internally
+        self.inner.commit_txn()
+            .map_err(|e| PyIOError::new_err(e.to_string()))
+    }
+
+    /// Abort a transaction.
+    ///
+    /// Discards all writes in the transaction.
+    ///
+    /// Args:
+    ///     txn: Transaction ID from begin(). If None, aborts current transaction.
+    #[pyo3(signature = (txn=None))]
+    pub fn abort(&self, txn: Option<u64>) -> PyResult<()> {
+        let _ = txn;
+        self.inner.abort_txn()
+            .map_err(|e| PyIOError::new_err(e.to_string()))
+    }
+
+    /// Force sync to disk.
+    ///
+    /// Ensures all committed data is persisted.
+    pub fn fsync(&self) -> PyResult<()> {
+        self.inner.fsync()
+            .map_err(|e| PyIOError::new_err(e.to_string()))
+    }
+
+    /// Create a checkpoint.
+    ///
+    /// Checkpoints allow truncating the WAL.
+    ///
+    /// Returns:
+    ///     Checkpoint sequence number.
+    pub fn checkpoint(&self) -> PyResult<u64> {
+        self.inner.checkpoint()
+            .map_err(|e| PyIOError::new_err(e.to_string()))
+    }
+
+    /// Run garbage collection.
+    ///
+    /// Reclaims space from old versions.
+    ///
+    /// Returns:
+    ///     Number of versions collected.
+    pub fn gc(&self) -> PyResult<usize> {
+        self.inner.gc()
+            .map_err(|e| PyIOError::new_err(e.to_string()))
+    }
+
+    fn __repr__(&self) -> String {
+        "Database(open)".to_string()
+    }
+}
+
+/// Context manager wrapper for Database transactions.
+///
+/// Example:
+///     >>> with db.transaction() as txn:
+///     ...     db.put(b"key1", b"value1", txn=txn)
+///     ...     db.put(b"key2", b"value2", txn=txn)
+///     ... # auto-commit on exit, auto-abort on exception
+#[pyclass(name = "Transaction")]
+pub struct PyTransaction {
+    db: Py<PyDatabase>,
+    txn_id: Option<u64>,
+    committed: bool,
+}
+
+#[pymethods]
+impl PyTransaction {
+    #[new]
+    fn new(db: Py<PyDatabase>) -> PyResult<Self> {
+        Python::with_gil(|py| {
+            let txn_id = db.borrow(py).begin()?;
+            Ok(Self {
+                db,
+                txn_id: Some(txn_id),
+                committed: false,
+            })
+        })
+    }
+
+    fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __exit__(
+        &mut self,
+        _exc_type: Option<PyObject>,
+        exc_value: Option<PyObject>,
+        _traceback: Option<PyObject>,
+    ) -> PyResult<bool> {
+        if exc_value.is_some() {
+            // Exception occurred - abort
+            Python::with_gil(|py| {
+                let _ = self.db.borrow(py).abort(self.txn_id);
+            });
+        } else if !self.committed {
+            // No exception - commit
+            Python::with_gil(|py| {
+                self.db.borrow(py).commit(self.txn_id)?;
+                self.committed = true;
+                Ok::<_, PyErr>(())
+            })?;
+        }
+        Ok(false) // Don't suppress exception
+    }
+
+    /// Get the transaction ID.
+    #[getter]
+    fn id(&self) -> Option<u64> {
+        self.txn_id
+    }
+
+    /// Commit the transaction explicitly.
+    fn commit(&mut self) -> PyResult<u64> {
+        if self.committed {
+            return Err(PyValueError::new_err("Transaction already committed"));
+        }
+        Python::with_gil(|py| {
+            let result = self.db.borrow(py).commit(self.txn_id)?;
+            self.committed = true;
+            Ok(result)
+        })
+    }
+
+    /// Abort the transaction explicitly.
+    fn abort(&mut self) -> PyResult<()> {
+        if self.committed {
+            return Err(PyValueError::new_err("Transaction already committed"));
+        }
+        Python::with_gil(|py| {
+            self.db.borrow(py).abort(self.txn_id)?;
+            self.txn_id = None;
+            Ok(())
+        })
+    }
+}
+
+// =============================================================================
 // Python Module
 // =============================================================================
 
@@ -626,10 +985,22 @@ fn is_safe_mode() -> bool {
 ///     >>> # Search
 ///     >>> query = np.random.randn(768).astype(np.float32)
 ///     >>> ids, distances = index.search(query, k=10)
+///     >>>
+///     >>> # Key-value database API
+///     >>> db = sochdb.Database.open("./my_db")
+///     >>> db.put(b"key", b"value")
+///     >>> value = db.get(b"key")
 #[pymodule]
 fn sochdb(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Vector index
     m.add_class::<PyHnswIndex>()?;
     m.add_function(wrap_pyfunction!(build_index, m)?)?;
+    
+    // Database API (Task 5)
+    m.add_class::<PyDatabase>()?;
+    m.add_class::<PyTransaction>()?;
+    
+    // Utilities
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(is_safe_mode, m)?)?;
     

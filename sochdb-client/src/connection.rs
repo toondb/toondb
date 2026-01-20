@@ -3261,6 +3261,232 @@ pub struct DurableStats {
     pub tables_registered: u64,
 }
 
+// =============================================================================
+// Connection Mode Enforcement (Task 6)
+// =============================================================================
+
+/// Connection mode for database access
+///
+/// Determines which operations are allowed on a connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionModeClient {
+    /// Read-only access - write operations return errors
+    ReadOnly,
+    /// Read-write access - all operations allowed
+    ReadWrite,
+}
+
+/// Read-only database connection
+///
+/// This connection type enforces read-only access at the API level.
+/// All write methods (put, delete, etc.) are not available on this type.
+///
+/// ## Use Case
+///
+/// Use this when you need concurrent read access while another process
+/// is writing to the database (e.g., Flowtrace App reading while a
+/// background script writes).
+///
+/// ## Example
+///
+/// ```ignore
+/// use sochdb::ReadOnlyConnection;
+///
+/// // Open read-only connection (acquires shared lock)
+/// let reader = ReadOnlyConnection::open("./data")?;
+///
+/// // Read operations work
+/// let value = reader.get(b"key")?;
+/// let items = reader.scan(b"prefix")?;
+///
+/// // Write operations are not available - compile error!
+/// // reader.put(b"key", b"value"); // Error: no method named `put`
+/// ```
+pub struct ReadOnlyConnection {
+    /// The underlying durable storage
+    storage: Arc<DurableStorage>,
+    /// Trie-Columnar Hybrid for O(|path|) resolution
+    tch: Arc<RwLock<TrieColumnarHybrid>>,
+    /// Active transaction ID for consistent reads
+    active_txn: RwLock<Option<u64>>,
+    /// Statistics
+    queries_executed: AtomicU64,
+}
+
+impl ReadOnlyConnection {
+    /// Open a read-only connection to the database.
+    ///
+    /// Multiple read-only connections can be open simultaneously.
+    /// Write operations are not available on this connection type.
+    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+        // Open storage (uses shared lock internally)
+        let storage = DurableStorage::open(path.as_ref())
+            .map_err(|e| ClientError::Storage(e.to_string()))?;
+
+        Ok(Self {
+            storage: Arc::new(storage),
+            tch: Arc::new(RwLock::new(TrieColumnarHybrid::new())),
+            active_txn: RwLock::new(None),
+            queries_executed: AtomicU64::new(0),
+        })
+    }
+
+    /// Begin a read transaction for consistent snapshot reads
+    pub fn begin_read_txn(&self) -> Result<u64> {
+        let txn_id = self
+            .storage
+            .begin_transaction()
+            .map_err(|e| ClientError::Storage(e.to_string()))?;
+        *self.active_txn.write() = Some(txn_id);
+        Ok(txn_id)
+    }
+
+    /// End the read transaction
+    pub fn end_read_txn(&self) -> Result<()> {
+        if let Some(txn_id) = self.active_txn.write().take() {
+            // Abort since read-only txns don't need to commit
+            self.storage
+                .abort(txn_id)
+                .map_err(|e| ClientError::Storage(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Get or create read transaction
+    fn ensure_read_txn(&self) -> Result<u64> {
+        let active = *self.active_txn.read();
+        match active {
+            Some(txn) => Ok(txn),
+            None => self.begin_read_txn(),
+        }
+    }
+
+    /// Get a value by key
+    pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        let txn_id = self.ensure_read_txn()?;
+        self.queries_executed.fetch_add(1, Ordering::Relaxed);
+        self.storage
+            .read(txn_id, key)
+            .map_err(|e| ClientError::Storage(e.to_string()))
+    }
+
+    /// Scan keys with a prefix
+    pub fn scan(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let txn_id = self.ensure_read_txn()?;
+        self.queries_executed.fetch_add(1, Ordering::Relaxed);
+        self.storage
+            .scan(txn_id, prefix)
+            .map_err(|e| ClientError::Storage(e.to_string()))
+    }
+
+    /// Get a value by path
+    pub fn get_path(&self, path: &str) -> Result<Option<Vec<u8>>> {
+        self.get(path.as_bytes())
+    }
+
+    /// Scan by path prefix
+    pub fn scan_path(&self, prefix: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        let results = self.scan(prefix.as_bytes())?;
+        Ok(results
+            .into_iter()
+            .filter_map(|(k, v)| String::from_utf8(k).ok().map(|path| (path, v)))
+            .collect())
+    }
+
+    /// Resolve a path (O(|path|) lookup)
+    pub fn resolve(&self, path: &str) -> Result<PathResolution> {
+        Ok(self.tch.read().resolve(path))
+    }
+
+    /// Get query statistics
+    pub fn queries_executed(&self) -> u64 {
+        self.queries_executed.load(Ordering::Relaxed)
+    }
+}
+
+/// Trait for read operations (shared by ReadOnly and ReadWrite connections)
+pub trait ReadableConnection {
+    /// Get a value by key
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>;
+    
+    /// Scan keys with a prefix
+    fn scan(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>>;
+    
+    /// Get a value by path
+    fn get_path(&self, path: &str) -> Result<Option<Vec<u8>>> {
+        self.get(path.as_bytes())
+    }
+    
+    /// Scan by path prefix
+    fn scan_path(&self, prefix: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        let results = self.scan(prefix.as_bytes())?;
+        Ok(results
+            .into_iter()
+            .filter_map(|(k, v)| String::from_utf8(k).ok().map(|path| (path, v)))
+            .collect())
+    }
+}
+
+/// Trait for write operations (only on ReadWrite connections)
+pub trait WritableConnection: ReadableConnection {
+    /// Put a key-value pair
+    fn put(&self, key: &[u8], value: &[u8]) -> Result<()>;
+    
+    /// Delete a key
+    fn delete(&self, key: &[u8]) -> Result<()>;
+    
+    /// Begin a transaction
+    fn begin_txn(&self) -> Result<u64>;
+    
+    /// Commit a transaction
+    fn commit_txn(&self) -> Result<u64>;
+    
+    /// Abort a transaction
+    fn abort_txn(&self) -> Result<()>;
+}
+
+impl ReadableConnection for ReadOnlyConnection {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        ReadOnlyConnection::get(self, key)
+    }
+    
+    fn scan(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        ReadOnlyConnection::scan(self, prefix)
+    }
+}
+
+impl ReadableConnection for DurableConnection {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        DurableConnection::get(self, key)
+    }
+    
+    fn scan(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        DurableConnection::scan(self, prefix)
+    }
+}
+
+impl WritableConnection for DurableConnection {
+    fn put(&self, key: &[u8], value: &[u8]) -> Result<()> {
+        DurableConnection::put(self, key, value)
+    }
+    
+    fn delete(&self, key: &[u8]) -> Result<()> {
+        DurableConnection::delete(self, key)
+    }
+    
+    fn begin_txn(&self) -> Result<u64> {
+        DurableConnection::begin_txn(self)
+    }
+    
+    fn commit_txn(&self) -> Result<u64> {
+        DurableConnection::commit_txn(self)
+    }
+    
+    fn abort_txn(&self) -> Result<()> {
+        DurableConnection::abort_txn(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

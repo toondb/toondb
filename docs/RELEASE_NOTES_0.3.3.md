@@ -72,7 +72,7 @@ Multi-agent coordination improvements:
 - Added `ContextQuery` struct with 545 lines of implementation
 - Full API parity with Python SDK
 
-### Node.js SDK (@sushanth/sochdb v0.3.3)
+### Node.js SDK (@sochdb/sochdb v0.3.3)
 - Added `GraphOverlay` class with TypeScript types
 - Added `ContextQuery` class with async/await support
 - Updated TypeScript definitions
@@ -116,7 +116,7 @@ graph := sochdb.NewGraphOverlay(db, "demo")
 
 **Node.js:**
 ```typescript
-import { Database, GraphOverlay } from '@sushanth/sochdb';
+import { Database, GraphOverlay } from '@sochdb/sochdb';
 const db = await Database.open('./db');
 const graph = new GraphOverlay(db, 'demo');
 ```
@@ -135,7 +135,7 @@ See [CHANGELOG.md](CHANGELOG.md) for complete details.
 - [Python SDK](https://github.com/sochdb/sochdb-python-sdk)
 - [Go SDK](https://github.com/sochdb/sochdb-go)
 - [Node.js SDK](https://github.com/sochdb/sochdb-nodejs-sdk)
-- [Documentation](https://docs.sochdb.dev)
+- [Documentation](https://sochdb.dev)
 
 ## 📊 Stats
 
@@ -156,5 +156,5 @@ pip install --upgrade sochdb-client
 go get github.com/sochdb/sochdb-go@v0.3.3
 
 # Node.js
-npm install @sushanth/sochdb@latest
+npm install @sochdb/sochdb@latest
 ```

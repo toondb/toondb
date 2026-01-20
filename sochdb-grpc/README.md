@@ -201,7 +201,7 @@ Apache-2.0
 ## Links
 
 - **Homepage**: https://sochdb.dev
-- **Documentation**: https://docs.sochdb.dev
+- **Documentation**: https://sochdb.dev
 - **Repository**: https://github.com/sochdb/sochdb
 - **SDKs**:
   - [Python SDK](https://pypi.org/project/sochdb/)

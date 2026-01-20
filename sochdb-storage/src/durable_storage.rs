@@ -2360,6 +2360,9 @@ pub struct DurableStorage {
     last_commit_us: AtomicU64,
     /// Estimated fsync latency in microseconds
     fsync_latency_us: AtomicU64,
+    /// Database lock for exclusive access (None = no locking)
+    #[allow(dead_code)]
+    db_lock: Option<crate::lock::DatabaseLock>,
 }
 
 impl DurableStorage {
@@ -2393,13 +2396,46 @@ impl DurableStorage {
     /// * `path` - Storage directory path
     /// * `enable_ordered_index` - Enable ordered index for O(log N) scans
     /// * `memtable_type` - Type of memtable to use (Standard or Arena)
+    ///
+    /// # Locking
+    ///
+    /// Acquires an exclusive advisory lock on the database directory.
+    /// This prevents concurrent multi-process access which would corrupt data.
+    /// If another process has the database open, returns `Err(DatabaseLocked)`.
     pub fn open_with_full_config<P: AsRef<Path>>(
         path: P,
         enable_ordered_index: bool,
         memtable_type: MemTableType,
     ) -> Result<Self> {
+        Self::open_with_full_config_internal(path, enable_ordered_index, memtable_type, true)
+    }
+
+    /// Open without locking (for testing crash recovery scenarios)
+    ///
+    /// # Safety
+    /// This should ONLY be used in tests that simulate crashes by forgetting
+    /// the storage instance. In production, always use `open_with_full_config`.
+    #[cfg(test)]
+    pub fn open_without_lock<P: AsRef<Path>>(path: P) -> Result<Self> {
+        Self::open_with_full_config_internal(path, true, MemTableType::Standard, false)
+    }
+
+    fn open_with_full_config_internal<P: AsRef<Path>>(
+        path: P,
+        enable_ordered_index: bool,
+        memtable_type: MemTableType,
+        acquire_lock: bool,
+    ) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         std::fs::create_dir_all(&path)?;
+
+        // Acquire exclusive lock on database directory (unless disabled for testing)
+        let db_lock = if acquire_lock {
+            Some(crate::lock::DatabaseLock::acquire(&path)
+                .map_err(|e| SochDBError::LockError(e.to_string()))?)
+        } else {
+            None
+        };
 
         let wal_path = path.join("wal.log");
         let wal = Arc::new(TxnWal::new(&wal_path)?);
@@ -2419,6 +2455,7 @@ impl DurableStorage {
             arrival_rate_ema: AtomicU64::new(1_000_000), // 1000 req/s × 1000 initial
             last_commit_us: AtomicU64::new(0),
             fsync_latency_us: AtomicU64::new(5000), // 5ms default
+            db_lock,
         };
 
         // Check if recovery needed
@@ -3078,7 +3115,8 @@ mod tests {
 
         // Phase 1: Write data and commit
         {
-            let storage = DurableStorage::open(dir.path()).unwrap();
+            // Use open_without_lock for crash simulation tests
+            let storage = DurableStorage::open_without_lock(dir.path()).unwrap();
 
             // Set sync mode to FULL to ensure data is synced before "crash"
             storage.set_sync_mode(2); // FULL: sync every commit
@@ -3095,7 +3133,7 @@ mod tests {
 
         // Phase 2: Reopen and recover
         {
-            let storage = DurableStorage::open(dir.path()).unwrap();
+            let storage = DurableStorage::open_without_lock(dir.path()).unwrap();
             let stats = storage.recover().unwrap();
             assert!(stats.transactions_recovered > 0 || stats.writes_recovered > 0);
 

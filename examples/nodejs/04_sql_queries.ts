@@ -8,7 +8,7 @@
  * - Schema management
  */
 
-import { Database } from '@sushanth/sochdb';
+import { Database } from '@sochdb/sochdb';
 import * as fs from 'fs';
 import * as path from 'path';
 

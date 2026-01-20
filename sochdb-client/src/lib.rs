@@ -129,7 +129,11 @@ pub use batch::{BatchOp, BatchResult, BatchWriter};
 pub use column_access::{ColumnView, TypedColumn};
 #[cfg(feature = "embedded")]
 pub use connection::EmbeddedConnection;
-pub use connection::{ConnectionConfig, DurableStats, RecoveryResult, SyncModeClient};
+pub use connection::{
+    ConnectionConfig, ConnectionModeClient, DurableStats, 
+    ReadOnlyConnection, ReadableConnection, RecoveryResult, 
+    SyncModeClient, WritableConnection
+};
 pub use context_query::{ContextQueryBuilder, ContextQueryResult, SectionBuilder, SectionContent};
 pub use crud::{DeleteResult, InsertResult, RowBuilder, UpdateResult};
 pub use format::{CanonicalFormat, ContextFormat, FormatCapabilities, FormatConversionError, WireFormat};

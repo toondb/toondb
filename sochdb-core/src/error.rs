@@ -85,6 +85,18 @@ pub enum SochDBError {
 
     #[error("Schema evolution error: {0}")]
     SchemaEvolution(String),
+
+    #[error("Lock error: {0}")]
+    LockError(String),
+
+    #[error("Database is locked by another process")]
+    DatabaseLocked,
+
+    #[error("WAL epoch mismatch: expected {expected}, got {actual}")]
+    EpochMismatch { expected: u64, actual: u64 },
+
+    #[error("Split-brain detected in WAL: {0}")]
+    SplitBrain(String),
 }
 
 pub type Result<T> = std::result::Result<T, SochDBError>;

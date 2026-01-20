@@ -15,7 +15,7 @@
 * **ACID transactions** (MVCC + WAL + Serializable Snapshot Isolation)
 * **Two access modes**: **Embedded (FFI)** and **IPC (Unix sockets)** via Python SDK
 
-**Quick links:** [📚 Documentation](https://docs.sochdb.dev) • [Quick Start](#-quick-start) • [Architecture](#-architecture) • [TOON Format](#-toon-format) • [Benchmarks](#-benchmarks) • [RFD](docs/rfds/RFD-001-ai-native-database.md)
+**Quick links:** [📚 Documentation](https://sochdb.dev) • [Quick Start](#-quick-start) • [Architecture](#-architecture) • [TOON Format](#-toon-format) • [Benchmarks](#-benchmarks) • [RFD](docs/rfds/RFD-001-ai-native-database.md)
 
 ---
 
@@ -94,7 +94,7 @@ db.close()
 Full TypeScript/JavaScript support for graph operations:
 
 ```typescript
-import { Database } from '@sushanth/sochdb';
+import { Database } from '@sochdb/sochdb';
 
 const db = await Database.open('./my_db');
 
@@ -198,7 +198,7 @@ Language SDKs are maintained in separate repositories with their own release cyc
 | Language | Repository | Installation |
 |----------|------------|-------------|
 | **Python** | [sochdb-python-sdk](https://github.com/sochdb/sochdb-python-sdk) | `pip install sochdb-client` |
-| **Node.js/TypeScript** | [sochdb-nodejs-sdk](https://github.com/sochdb/sochdb-nodejs-sdk) | `npm install @sushanth/sochdb` |
+| **Node.js/TypeScript** | [sochdb-nodejs-sdk](https://github.com/sochdb/sochdb-nodejs-sdk) | `npm install @sochdb/sochdb` |
 | **Go** | [sochdb-go](https://github.com/sochdb/sochdb-go) | `go get github.com/sochdb/sochdb-go@latest` |
 | **Rust** | This repository | `cargo add sochdb` |
 
@@ -228,7 +228,7 @@ db.close()
 #### Node.js / TypeScript
 
 ```typescript
-import { SochDatabase } from '@sushanth/sochdb';
+import { SochDatabase } from '@sochdb/sochdb';
 
 const db = new SochDatabase('./my_db');
 await db.put('users/alice', 'Alice Smith');
@@ -343,7 +343,7 @@ func main() {
 #### Node.js/TypeScript
 
 ```typescript
-import { Database, GraphOverlay } from '@sushanth/sochdb';
+import { Database, GraphOverlay } from '@sochdb/sochdb';
 
 const db = await Database.open('./my_db');
 const graph = new GraphOverlay(db, 'agent_memory');
@@ -476,7 +476,7 @@ print(results)  # [{'id': '1', 'distance': 0.23}, ...]
 #### Node.js / TypeScript
 
 ```typescript
-import { VectorIndex } from '@sushanth/sochdb';
+import { VectorIndex } from '@sochdb/sochdb';
 
 // Instantiate VectorIndex with path and config
 const index = new VectorIndex('./vectors', {
@@ -1454,4 +1454,4 @@ Apache-2.0
 
 **Built with ❤️ for the AI era**
 
-[GitHub](https://github.com/sochdb/sochdb) • [Documentation](https://docs.sochdb.dev)
+[GitHub](https://github.com/sochdb/sochdb) • [Documentation](https://sochdb.dev)
