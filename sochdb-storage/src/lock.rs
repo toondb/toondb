@@ -59,7 +59,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use sochdb_core::{Result, SochDBError};
+use sochdb_core::SochDBError;
 
 // =============================================================================
 // Error Types
@@ -407,14 +407,13 @@ impl DatabaseLock {
 
     #[cfg(windows)]
     fn process_exists(pid: u32) -> bool {
-        use std::ptr::null_mut;
         unsafe {
             let handle = windows_sys::Win32::System::Threading::OpenProcess(
                 windows_sys::Win32::System::Threading::PROCESS_QUERY_LIMITED_INFORMATION,
                 0,
                 pid,
             );
-            if handle.is_null() {
+            if handle == 0 || handle == -1 {
                 false
             } else {
                 windows_sys::Win32::Foundation::CloseHandle(handle);
