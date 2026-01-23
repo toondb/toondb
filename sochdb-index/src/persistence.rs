@@ -90,7 +90,8 @@ impl HnswIndex {
             // Collect neighbors from all layers (extract just the neighbors, not version)
             let mut neighbors = Vec::with_capacity(node.layers.len());
             for layer_lock in &node.layers {
-                neighbors.push(layer_lock.read().neighbors.clone());
+                let dense_neighbors = layer_lock.read().neighbors.clone();
+                neighbors.push(self.dense_neighbors_to_ids(&dense_neighbors));
             }
 
             serializable_nodes.push(SerializableNode {
@@ -156,28 +157,61 @@ impl HnswIndex {
             .quantization_precision
             .unwrap_or(Precision::F32);
 
+        let mut pending_neighbors: Vec<(u128, Vec<SmallVec<[u128; MAX_M]>>)> = Vec::new();
+
         for snode in snapshot.nodes {
-            // Reconstruct layers with versioned neighbors
+            // Reconstruct layers with versioned neighbors (dense list filled in second pass)
             let mut layers = Vec::with_capacity(snode.neighbors.len());
-            for layer_neighbors in snode.neighbors {
+            for _ in 0..snode.neighbors.len() {
                 layers.push(RwLock::new(crate::hnsw::VersionedNeighbors {
-                    neighbors: layer_neighbors,
+                    neighbors: SmallVec::new(),
                     version: 0, // Start at version 0 for loaded snapshots
                 }));
             }
 
+            let dense_index = index.next_dense_index.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as u32;
+            index.record_dense_id(dense_index, snode.id);
+            let quantized = QuantizedVector::from_f32(
+                ndarray::Array1::from_vec(snode.vector),
+                precision,
+            );
+            let vector_index = {
+                let mut store = index.vector_store.write();
+                let idx = store.len() as u32;
+                store.push(quantized.clone());
+                idx
+            };
             let node = Arc::new(crate::hnsw::HnswNode {
                 id: snode.id,
-                vector: QuantizedVector::from_f32(
-                    ndarray::Array1::from_vec(snode.vector),
-                    precision,
-                ),
+                dense_index,
+                vector_index,
+                vector: quantized,
                 storage_id: None, // Loaded from snapshot - vectors are inline
                 layers,
                 layer: snode.layer,
             });
 
-            index.nodes.insert(snode.id, node);
+            pending_neighbors.push((snode.id, snode.neighbors));
+            index.nodes.insert(snode.id, node.clone());
+            // O(1) hot path storage
+            index.store_internal_node(dense_index, node);
+        }
+
+        // Second pass: fill dense neighbor lists
+        for (node_id, neighbor_layers) in pending_neighbors {
+            if let Some(node) = index.nodes.get(&node_id) {
+                for (layer_idx, layer_neighbors) in neighbor_layers.into_iter().enumerate() {
+                    let dense_neighbors: SmallVec<[u32; MAX_M]> = layer_neighbors
+                        .iter()
+                        .filter_map(|id| index.node_id_to_dense(*id))
+                        .collect();
+                    if let Some(layer_lock) = node.layers.get(layer_idx) {
+                        let mut layer_guard = layer_lock.write();
+                        layer_guard.neighbors = dense_neighbors;
+                        layer_guard.version = 0;
+                    }
+                }
+            }
         }
 
         // Restore metadata
@@ -199,7 +233,8 @@ impl HnswIndex {
             // Collect neighbors from all layers (extract just the neighbors, not version)
             let mut neighbors = Vec::with_capacity(node.layers.len());
             for layer_lock in &node.layers {
-                neighbors.push(layer_lock.read().neighbors.clone());
+                let dense_neighbors = layer_lock.read().neighbors.clone();
+                neighbors.push(self.dense_neighbors_to_ids(&dense_neighbors));
             }
 
             serializable_nodes.push(SerializableNode {
@@ -258,28 +293,61 @@ impl HnswIndex {
             .quantization_precision
             .unwrap_or(Precision::F32);
 
+        let mut pending_neighbors: Vec<(u128, Vec<SmallVec<[u128; MAX_M]>>)> = Vec::new();
+
         for snode in snapshot.nodes {
-            // Reconstruct layers with versioned neighbors
+            // Reconstruct layers with versioned neighbors (dense list filled in second pass)
             let mut layers = Vec::with_capacity(snode.neighbors.len());
-            for layer_neighbors in snode.neighbors {
+            for _ in 0..snode.neighbors.len() {
                 layers.push(RwLock::new(crate::hnsw::VersionedNeighbors {
-                    neighbors: layer_neighbors,
+                    neighbors: SmallVec::new(),
                     version: 0, // Start at version 0 for loaded snapshots
                 }));
             }
 
+            let dense_index = index.next_dense_index.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as u32;
+            index.record_dense_id(dense_index, snode.id);
+            let quantized = QuantizedVector::from_f32(
+                ndarray::Array1::from_vec(snode.vector),
+                precision,
+            );
+            let vector_index = {
+                let mut store = index.vector_store.write();
+                let idx = store.len() as u32;
+                store.push(quantized.clone());
+                idx
+            };
             let node = Arc::new(crate::hnsw::HnswNode {
                 id: snode.id,
-                vector: QuantizedVector::from_f32(
-                    ndarray::Array1::from_vec(snode.vector),
-                    precision,
-                ),
+                dense_index,
+                vector_index,
+                vector: quantized,
                 storage_id: None, // Loaded from snapshot - vectors are inline
                 layers,
                 layer: snode.layer,
             });
 
-            index.nodes.insert(snode.id, node);
+            pending_neighbors.push((snode.id, snode.neighbors));
+            index.nodes.insert(snode.id, node.clone());
+            // O(1) hot path storage
+            index.store_internal_node(dense_index, node);
+        }
+
+        // Second pass: fill dense neighbor lists
+        for (node_id, neighbor_layers) in pending_neighbors {
+            if let Some(node) = index.nodes.get(&node_id) {
+                for (layer_idx, layer_neighbors) in neighbor_layers.into_iter().enumerate() {
+                    let dense_neighbors: SmallVec<[u32; MAX_M]> = layer_neighbors
+                        .iter()
+                        .filter_map(|id| index.node_id_to_dense(*id))
+                        .collect();
+                    if let Some(layer_lock) = node.layers.get(layer_idx) {
+                        let mut layer_guard = layer_lock.write();
+                        layer_guard.neighbors = dense_neighbors;
+                        layer_guard.version = 0;
+                    }
+                }
+            }
         }
 
         *index.entry_point.write() = snapshot.entry_point;

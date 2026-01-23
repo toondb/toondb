@@ -19,9 +19,114 @@ use std::ptr;
 use std::slice;
 use std::sync::Arc;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::sync::OnceLock;
+use sochdb_index::hnsw::{DistanceMetric, HnswConfig, HnswIndex};
 
 /// Opaque pointer to Database
 pub struct DatabasePtr(Arc<Database>);
+
+// =========================================================================
+// Collection Index Registry (in-memory)
+// =========================================================================
+
+struct CollectionIndex {
+    index: Arc<HnswIndex>,
+    dimension: usize,
+    metric: DistanceMetric,
+}
+
+static COLLECTION_INDEXES: OnceLock<Mutex<HashMap<String, Arc<CollectionIndex>>>> = OnceLock::new();
+
+fn collection_key(namespace: &str, collection: &str) -> String {
+    format!("{}/{}", namespace, collection)
+}
+
+fn vector_bin_key(namespace: &str, collection: &str, id_hash: u128) -> String {
+    format!("{}/collections/{}/vectors_bin/{:032x}", namespace, collection, id_hash)
+}
+
+fn metadata_key(namespace: &str, collection: &str, id_hash: u128) -> String {
+    format!("{}/collections/{}/meta/{:032x}", namespace, collection, id_hash)
+}
+
+fn hash_id_to_u128(id: &str) -> u128 {
+    let hash = blake3::hash(id.as_bytes());
+    let bytes = hash.as_bytes();
+    u128::from_le_bytes([
+        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
+    ])
+}
+
+fn ensure_collection_index(
+    db: &Database,
+    namespace: &str,
+    collection: &str,
+    dimension: usize,
+    metric: DistanceMetric,
+) -> Arc<CollectionIndex> {
+    let registry = COLLECTION_INDEXES.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = collection_key(namespace, collection);
+
+    let mut registry_guard = registry.lock().unwrap();
+    if let Some(existing) = registry_guard.get(&key) {
+        return existing.clone();
+    }
+
+    let mut config = HnswConfig::default();
+    config.metric = metric;
+    let index = Arc::new(HnswIndex::new(dimension, config));
+
+    let entry = Arc::new(CollectionIndex {
+        index,
+        dimension,
+        metric,
+    });
+    registry_guard.insert(key, entry.clone());
+
+    entry
+}
+
+fn resolve_collection_config(
+    db: &Database,
+    namespace: &str,
+    collection: &str,
+) -> Option<(usize, DistanceMetric)> {
+    let key = format!("{}/_collections/{}", namespace, collection);
+    let txn = db.begin_transaction().ok()?;
+    let value = db.get(txn, key.as_bytes()).ok().flatten();
+    let _ = db.commit(txn);
+    let value = value?;
+
+    let parsed: serde_json::Value = serde_json::from_slice(&value).ok()?;
+    let dimension = parsed.get("dimension")?.as_u64()? as usize;
+    let metric = match parsed.get("metric").and_then(|v| v.as_u64()).unwrap_or(0) {
+        1 => DistanceMetric::Euclidean,
+        2 => DistanceMetric::DotProduct,
+        _ => DistanceMetric::Cosine,
+    };
+    Some((dimension, metric))
+}
+
+fn serialize_vector_binary(vector: &[f32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(4 + vector.len() * 4);
+    let len = vector.len() as u32;
+    out.extend_from_slice(&len.to_le_bytes());
+    for value in vector {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    out
+}
+
+fn decode_score(metric: DistanceMetric, distance: f32) -> f32 {
+    match metric {
+        DistanceMetric::Cosine => 1.0 - distance,
+        DistanceMetric::DotProduct => -distance,
+        DistanceMetric::Euclidean => -distance,
+    }
+}
 
 /// C-compatible Transaction Handle
 #[repr(C)]
@@ -2152,10 +2257,21 @@ pub unsafe extern "C" fn sochdb_collection_create(
         return -1;
     }
     
-    match db.commit(txn) {
+    let result = match db.commit(txn) {
         Ok(_) => 0,
         Err(_) => -1,
+    };
+
+    if result == 0 {
+        let metric = match dist_type {
+            1 => DistanceMetric::Euclidean,
+            2 => DistanceMetric::DotProduct,
+            _ => DistanceMetric::Cosine,
+        };
+        let _ = ensure_collection_index(db, ns, col, dimension, metric);
     }
+
+    result
 }
 
 /// Insert a vector into a collection
@@ -2191,6 +2307,15 @@ pub unsafe extern "C" fn sochdb_collection_insert(
         Err(_) => return -1,
     };
     let vector = unsafe { slice::from_raw_parts(vector_ptr, vector_len) };
+    let db = unsafe { &(*ptr).0 };
+
+    let (dimension, metric) = match resolve_collection_config(db, ns, col) {
+        Some(config) => config,
+        None => (vector_len, DistanceMetric::Cosine),
+    };
+    if vector_len != dimension {
+        return -1;
+    }
     
     let metadata = if !metadata_json.is_null() {
         match unsafe { CStr::from_ptr(metadata_json) }.to_str() {
@@ -2201,29 +2326,40 @@ pub unsafe extern "C" fn sochdb_collection_insert(
         "{}".to_string()
     };
     
-    let db = unsafe { &(*ptr).0 };
     let txn = match db.begin_transaction() {
         Ok(t) => t,
         Err(_) => return -1,
     };
     
-    // Store vector doc
-    let vec_key = format!("{}/collections/{}/vectors/{}", ns, col, doc_id);
-    let vec_json: Vec<String> = vector.iter().map(|f| f.to_string()).collect();
-    let vec_value = format!(
-        r#"{{"id":"{}","vector":[{}],"metadata":{}}}"#,
-        doc_id, vec_json.join(","), metadata
-    );
-    
-    if let Err(_) = db.put(txn, vec_key.as_bytes(), vec_value.as_bytes()) {
+    let id_hash = hash_id_to_u128(doc_id);
+    let vec_key = vector_bin_key(ns, col, id_hash);
+    let vec_value = serialize_vector_binary(vector);
+
+    if let Err(_) = db.put(txn, vec_key.as_bytes(), &vec_value) {
         let _ = db.abort(txn);
         return -1;
     }
-    
-    match db.commit(txn) {
-        Ok(_) => 0,
-        Err(_) => -1,
+
+    let metadata_value = match serde_json::from_str::<serde_json::Value>(&metadata) {
+        Ok(value) => serde_json::json!({"id": doc_id, "metadata": value}),
+        Err(_) => serde_json::json!({"id": doc_id, "metadata": serde_json::json!({})}),
+    };
+    let meta_key = metadata_key(ns, col, id_hash);
+    if let Ok(meta_bytes) = serde_json::to_vec(&metadata_value) {
+        if let Err(_) = db.put(txn, meta_key.as_bytes(), &meta_bytes) {
+            let _ = db.abort(txn);
+            return -1;
+        }
     }
+    
+    if let Err(_) = db.commit(txn) {
+        return -1;
+    }
+
+    let index = ensure_collection_index(db, ns, col, dimension, metric);
+    let _ = index.index.insert(id_hash, vector.to_vec());
+
+    0
 }
 
 /// C-compatible search result
@@ -2253,7 +2389,6 @@ pub unsafe extern "C" fn sochdb_collection_search(
         || query_ptr.is_null() || results_out.is_null() {
         return -1;
     }
-    
     let ns = match unsafe { CStr::from_ptr(namespace) }.to_str() {
         Ok(s) => s,
         Err(_) => return -1,
@@ -2263,79 +2398,43 @@ pub unsafe extern "C" fn sochdb_collection_search(
         Err(_) => return -1,
     };
     let query = unsafe { slice::from_raw_parts(query_ptr, query_len) };
-    
     let db = unsafe { &(*ptr).0 };
-    let txn = match db.begin_transaction() {
-        Ok(t) => t,
+    let (dimension, metric) = match resolve_collection_config(db, ns, col) {
+        Some(config) => config,
+        None => return 0,
+    };
+
+    if query_len != dimension {
+        return -1;
+    }
+
+    let index = ensure_collection_index(db, ns, col, dimension, metric);
+    let mut scored = match index.index.search(query, k) {
+        Ok(results) => results,
         Err(_) => return -1,
     };
-    
-    // Scan all vectors in collection
-    let prefix = format!("{}/collections/{}/vectors/", ns, col);
-    let entries = match db.scan(txn, prefix.as_bytes()) {
-        Ok(e) => e,
-        Err(_) => {
-            let _ = db.abort(txn);
-            return -1;
-        }
-    };
-    let _ = db.commit(txn);
-    
-    // Compute cosine similarity for each
-    let mut scored: Vec<(f32, String, String)> = Vec::new();
-    
-    for (_key, value) in entries {
-        let value_str = match std::str::from_utf8(&value) {
-            Ok(s) => s,
-            Err(_) => continue,
+
+    let result_count = scored.len().min(k);
+    for (i, (id_hash, distance)) in scored.drain(..result_count).enumerate() {
+        let meta_key = metadata_key(ns, col, id_hash);
+        let txn = match db.begin_transaction() {
+            Ok(t) => t,
+            Err(_) => return -1,
         };
-        
-        // Parse vector from JSON
-        if let Some(vec_start) = value_str.find(r#""vector":["#) {
-            let start = vec_start + r#""vector":["#.len();
-            if let Some(end) = value_str[start..].find(']') {
-                let vec_str = &value_str[start..start + end];
-                let doc_vec: Vec<f32> = vec_str
-                    .split(',')
-                    .filter_map(|s| s.trim().parse().ok())
-                    .collect();
-                
-                if doc_vec.len() == query.len() {
-                    let score = cosine_similarity(query, &doc_vec);
-                    
-                    // Extract ID
-                    let id = if let Some(id_pos) = value_str.find(r#""id":""#) {
-                        let id_start = id_pos + r#""id":""#.len();
-                        if let Some(id_end) = value_str[id_start..].find('"') {
-                            value_str[id_start..id_start + id_end].to_string()
-                        } else {
-                            continue;
-                        }
-                    } else {
-                        continue;
-                    };
-                    
-                    // Extract metadata
-                    let metadata = if let Some(meta_pos) = value_str.find(r#""metadata":"#) {
-                        let meta_start = meta_pos + r#""metadata":"#.len();
-                        &value_str[meta_start..value_str.len()-1]
-                    } else {
-                        "{}"
-                    };
-                    
-                    scored.push((score, id, metadata.to_string()));
-                }
+        let meta_value = db.get(txn, meta_key.as_bytes()).ok().flatten();
+        let _ = db.commit(txn);
+
+        let mut id_value = String::new();
+        let mut metadata_json = serde_json::json!({});
+        if let Some(bytes) = meta_value.as_deref() {
+            if let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(bytes) {
+                id_value = parsed.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                metadata_json = parsed.get("metadata").cloned().unwrap_or(serde_json::json!({}));
             }
         }
-    }
-    
-    // Sort by score descending
-    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-    
-    // Return top k
-    let result_count = scored.len().min(k);
-    for (i, (score, id, metadata)) in scored.into_iter().take(k).enumerate() {
-        let c_id = match std::ffi::CString::new(id) {
+        let metadata = serde_json::to_string(&metadata_json).unwrap_or_else(|_| "{}".to_string());
+
+        let c_id = match std::ffi::CString::new(id_value) {
             Ok(s) => s.into_raw(),
             Err(_) => ptr::null_mut(),
         };
@@ -2343,15 +2442,231 @@ pub unsafe extern "C" fn sochdb_collection_search(
             Ok(s) => s.into_raw(),
             Err(_) => ptr::null_mut(),
         };
-        
+
         unsafe {
             (*results_out.add(i)).id_ptr = c_id;
-            (*results_out.add(i)).score = score;
+            (*results_out.add(i)).score = decode_score(metric, distance);
             (*results_out.add(i)).metadata_ptr = c_meta;
         }
     }
-    
+
     result_count as c_int
+}
+
+/// Search a collection and return results as struct-of-arrays (ids + scores)
+///
+/// - ids_out: pointer to u64 array (allocated by Rust)
+/// - scores_out: pointer to f32 array (allocated by Rust)
+/// - len_out: number of results
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sochdb_collection_search_soa(
+    ptr: *mut DatabasePtr,
+    namespace: *const c_char,
+    collection: *const c_char,
+    query_ptr: *const f32,
+    query_len: usize,
+    k: usize,
+    min_score: f32,
+    filter_json: *const c_char,
+    ids_hi_out: *mut *mut u64,
+    ids_lo_out: *mut *mut u64,
+    scores_out: *mut *mut f32,
+    len_out: *mut usize,
+) -> c_int {
+    if ptr.is_null() || namespace.is_null() || collection.is_null()
+        || query_ptr.is_null() || ids_hi_out.is_null() || ids_lo_out.is_null()
+        || scores_out.is_null() || len_out.is_null() {
+        return -1;
+    }
+
+    let ns = match unsafe { CStr::from_ptr(namespace) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let col = match unsafe { CStr::from_ptr(collection) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let query = unsafe { slice::from_raw_parts(query_ptr, query_len) };
+    let db = unsafe { &(*ptr).0 };
+
+    let (dimension, metric) = match resolve_collection_config(db, ns, col) {
+        Some(config) => config,
+        None => return 0,
+    };
+    if query_len != dimension {
+        return -1;
+    }
+
+    let filter = if !filter_json.is_null() {
+        match unsafe { CStr::from_ptr(filter_json) }.to_str() {
+            Ok(s) => serde_json::from_str::<serde_json::Value>(s).ok(),
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    let index = ensure_collection_index(db, ns, col, dimension, metric);
+    let results = match index.index.search(query, k) {
+        Ok(results) => results,
+        Err(_) => return -1,
+    };
+
+    let mut ids_hi: Vec<u64> = Vec::with_capacity(results.len());
+    let mut ids_lo: Vec<u64> = Vec::with_capacity(results.len());
+    let mut scores: Vec<f32> = Vec::with_capacity(results.len());
+
+    for (id_hash, distance) in results {
+        let score = decode_score(metric, distance);
+        if min_score > 0.0 && score < min_score {
+            continue;
+        }
+
+        if let Some(filter_value) = &filter {
+            let meta_key = metadata_key(ns, col, id_hash);
+            let txn = match db.begin_transaction() {
+                Ok(t) => t,
+                Err(_) => return -1,
+            };
+            let meta_value = db.get(txn, meta_key.as_bytes()).ok().flatten();
+            let _ = db.commit(txn);
+            let meta_value = match meta_value {
+                Some(value) => value,
+                None => continue,
+            };
+            let parsed = match serde_json::from_slice::<serde_json::Value>(&meta_value) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+            let metadata = parsed.get("metadata").cloned().unwrap_or(Value::Null);
+
+            if !metadata_matches_filter(&metadata, filter_value) {
+                continue;
+            }
+        }
+
+        ids_hi.push((id_hash >> 64) as u64);
+        ids_lo.push((id_hash & u128::from(u64::MAX)) as u64);
+        scores.push(score);
+        if ids_hi.len() >= k {
+            break;
+        }
+    }
+
+    let len = ids_hi.len();
+    let mut ids_hi_box = ids_hi.into_boxed_slice();
+    let mut ids_lo_box = ids_lo.into_boxed_slice();
+    let mut scores_box = scores.into_boxed_slice();
+
+    unsafe {
+        *len_out = len;
+        *ids_hi_out = ids_hi_box.as_mut_ptr();
+        *ids_lo_out = ids_lo_box.as_mut_ptr();
+        *scores_out = scores_box.as_mut_ptr();
+    }
+
+    std::mem::forget(ids_hi_box);
+    std::mem::forget(ids_lo_box);
+    std::mem::forget(scores_box);
+
+    len as c_int
+}
+
+/// Fetch metadata JSON for a list of ids (u64 hashes)
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sochdb_collection_fetch_metadata_json(
+    ptr: *mut DatabasePtr,
+    namespace: *const c_char,
+    collection: *const c_char,
+    ids_hi_ptr: *const u64,
+    ids_lo_ptr: *const u64,
+    ids_len: usize,
+) -> *mut c_char {
+    if ptr.is_null() || namespace.is_null() || collection.is_null()
+        || ids_hi_ptr.is_null() || ids_lo_ptr.is_null() {
+        return ptr::null_mut();
+    }
+
+    let ns = match unsafe { CStr::from_ptr(namespace) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return ptr::null_mut(),
+    };
+    let col = match unsafe { CStr::from_ptr(collection) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return ptr::null_mut(),
+    };
+    let ids_hi = unsafe { slice::from_raw_parts(ids_hi_ptr, ids_len) };
+    let ids_lo = unsafe { slice::from_raw_parts(ids_lo_ptr, ids_len) };
+    let db = unsafe { &(*ptr).0 };
+
+    let mut results = Vec::with_capacity(ids_len);
+    for i in 0..ids_len {
+        let id_hash = ((ids_hi[i] as u128) << 64) | (ids_lo[i] as u128);
+        let meta_key = metadata_key(ns, col, id_hash);
+        let txn = match db.begin_transaction() {
+            Ok(t) => t,
+            Err(_) => return ptr::null_mut(),
+        };
+        let meta_value = db.get(txn, meta_key.as_bytes()).ok().flatten();
+        let _ = db.commit(txn);
+        if let Some(bytes) = meta_value {
+            if let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                results.push(parsed);
+                continue;
+            }
+        }
+        results.push(serde_json::json!({"id": "", "metadata": {}}));
+    }
+
+    match serde_json::to_string(&results) {
+        Ok(json) => match std::ffi::CString::new(json) {
+            Ok(cstr) => cstr.into_raw(),
+            Err(_) => ptr::null_mut(),
+        },
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+/// Free arrays returned by sochdb_collection_search_soa
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sochdb_collection_free_u64(ptr: *mut u64, len: usize) {
+    if ptr.is_null() || len == 0 {
+        return;
+    }
+    unsafe {
+        let _ = Vec::from_raw_parts(ptr, len, len);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sochdb_collection_free_f32(ptr: *mut f32, len: usize) {
+    if ptr.is_null() || len == 0 {
+        return;
+    }
+    unsafe {
+        let _ = Vec::from_raw_parts(ptr, len, len);
+    }
+}
+
+fn metadata_matches_filter(metadata: &Value, filter: &Value) -> bool {
+    let filter_obj = match filter.as_object() {
+        Some(obj) => obj,
+        None => return true,
+    };
+    let metadata_obj = match metadata.as_object() {
+        Some(obj) => obj,
+        None => return false,
+    };
+
+    for (key, expected) in filter_obj.iter() {
+        match metadata_obj.get(key) {
+            Some(actual) if actual == expected => {}
+            _ => return false,
+        }
+    }
+
+    true
 }
 
 /// Search a collection for keywords (simple term match)

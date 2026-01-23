@@ -38,6 +38,7 @@
 //! - Distance computations
 //! - Search operations
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, Once};
@@ -49,6 +50,7 @@ use std::io::Write;
 // ============================================================================
 
 static PROFILING_ENABLED: AtomicBool = AtomicBool::new(false);
+static PROFILING_PER_THREAD: AtomicBool = AtomicBool::new(false);
 static PROFILING_INIT: Once = Once::new();
 
 /// Check if profiling is enabled (via SOCHDB_PROFILING env var)
@@ -59,12 +61,22 @@ pub fn is_profiling_enabled() -> bool {
             .map(|v| v == "1" || v.to_lowercase() == "true")
             .unwrap_or(false);
         PROFILING_ENABLED.store(enabled, Ordering::Relaxed);
+
+        let per_thread = std::env::var("SOCHDB_PROFILING_PER_THREAD")
+            .map(|v| v == "1" || v.to_lowercase() == "true")
+            .unwrap_or(false);
+        PROFILING_PER_THREAD.store(per_thread, Ordering::Relaxed);
         
         if enabled {
             eprintln!("[SOCHDB] Profiling enabled. Output: {}", get_profile_path());
         }
     });
     PROFILING_ENABLED.load(Ordering::Relaxed)
+}
+
+#[inline]
+fn is_per_thread_enabled() -> bool {
+    PROFILING_PER_THREAD.load(Ordering::Relaxed)
 }
 
 fn get_profile_path() -> String {
@@ -87,31 +99,63 @@ impl Timer {
     /// Start a new timer
     #[inline]
     pub fn start(name: impl Into<String>) -> Self {
+        let name = name.into();
+        if is_profiling_enabled() {
+            SPAN_STACK.with(|stack| {
+                stack.borrow_mut().push(ActiveSpan {
+                    name: name.clone(),
+                    start: Instant::now(),
+                    child_ns: 0,
+                });
+            });
+        }
         Self {
             start: Instant::now(),
-            name: name.into(),
+            name,
         }
     }
     
     /// Stop timer and record elapsed time in nanoseconds
     #[inline]
     pub fn stop(self) -> u64 {
-        let elapsed_ns = self.start.elapsed().as_nanos() as u64;
-        if is_profiling_enabled() {
-            PROFILE_COLLECTOR.record(&self.name, elapsed_ns);
-        }
-        elapsed_ns
+        self.stop_with_count(1)
     }
     
     /// Stop timer and record with count (for batch operations)
     #[inline]
     pub fn stop_with_count(self, count: usize) -> u64 {
-        let elapsed_ns = self.start.elapsed().as_nanos() as u64;
+        let mut elapsed_ns = self.start.elapsed().as_nanos() as u64;
+        let mut child_ns = 0u64;
+
         if is_profiling_enabled() {
-            PROFILE_COLLECTOR.record_with_count(&self.name, elapsed_ns, count);
+            SPAN_STACK.with(|stack| {
+                let mut stack = stack.borrow_mut();
+                if let Some(span) = stack.pop() {
+                    if span.name == self.name {
+                        elapsed_ns = span.start.elapsed().as_nanos() as u64;
+                        child_ns = span.child_ns;
+                        if let Some(parent) = stack.last_mut() {
+                            parent.child_ns = parent.child_ns.saturating_add(elapsed_ns);
+                        }
+                    }
+                }
+            });
+
+            let exclusive_ns = elapsed_ns.saturating_sub(child_ns);
+            PROFILE_COLLECTOR.record_span_with_count(&self.name, elapsed_ns, exclusive_ns, count);
         }
         elapsed_ns
     }
+}
+
+struct ActiveSpan {
+    name: String,
+    start: Instant,
+    child_ns: u64,
+}
+
+thread_local! {
+    static SPAN_STACK: RefCell<Vec<ActiveSpan>> = RefCell::new(Vec::new());
 }
 
 /// Macro for timed sections (no-op when profiling disabled)
@@ -152,23 +196,25 @@ macro_rules! profile_batch {
 #[derive(Debug, Default, Clone)]
 pub struct OpStats {
     pub count: u64,
-    pub total_ns: u64,
+    pub total_inclusive_ns: u64,
+    pub total_exclusive_ns: u64,
     pub min_ns: u64,
     pub max_ns: u64,
     pub item_count: u64,  // For batch operations
 }
 
 impl OpStats {
-    fn record(&mut self, elapsed_ns: u64, count: usize) {
+    fn record(&mut self, inclusive_ns: u64, exclusive_ns: u64, count: usize) {
         self.count += 1;
-        self.total_ns += elapsed_ns;
+        self.total_inclusive_ns += inclusive_ns;
+        self.total_exclusive_ns += exclusive_ns;
         self.item_count += count as u64;
         
-        if self.min_ns == 0 || elapsed_ns < self.min_ns {
-            self.min_ns = elapsed_ns;
+        if self.min_ns == 0 || inclusive_ns < self.min_ns {
+            self.min_ns = inclusive_ns;
         }
-        if elapsed_ns > self.max_ns {
-            self.max_ns = elapsed_ns;
+        if inclusive_ns > self.max_ns {
+            self.max_ns = inclusive_ns;
         }
     }
     
@@ -176,7 +222,15 @@ impl OpStats {
         if self.count == 0 {
             0.0
         } else {
-            self.total_ns as f64 / self.count as f64
+            self.total_inclusive_ns as f64 / self.count as f64
+        }
+    }
+
+    pub fn mean_exclusive_ns(&self) -> f64 {
+        if self.count == 0 {
+            0.0
+        } else {
+            self.total_exclusive_ns as f64 / self.count as f64
         }
     }
     
@@ -184,7 +238,7 @@ impl OpStats {
         if self.item_count == 0 {
             self.mean_ns()
         } else {
-            self.total_ns as f64 / self.item_count as f64
+            self.total_inclusive_ns as f64 / self.item_count as f64
         }
     }
 }
@@ -192,6 +246,7 @@ impl OpStats {
 /// Global profile collector
 pub struct ProfileCollector {
     stats: Mutex<HashMap<String, OpStats>>,
+    per_thread_stats: Mutex<HashMap<String, HashMap<String, OpStats>>>,
     start_time: Instant,
 }
 
@@ -199,21 +254,43 @@ impl ProfileCollector {
     fn new() -> Self {
         Self {
             stats: Mutex::new(HashMap::new()),
+            per_thread_stats: Mutex::new(HashMap::new()),
             start_time: Instant::now(),
         }
     }
     
     /// Record a timing
     pub fn record(&self, name: &str, elapsed_ns: u64) {
-        self.record_with_count(name, elapsed_ns, 1);
+        self.record_span_with_count(name, elapsed_ns, elapsed_ns, 1);
     }
     
     /// Record a timing with item count
     pub fn record_with_count(&self, name: &str, elapsed_ns: u64, count: usize) {
+        self.record_span_with_count(name, elapsed_ns, elapsed_ns, count);
+    }
+
+    pub fn record_span_with_count(
+        &self,
+        name: &str,
+        inclusive_ns: u64,
+        exclusive_ns: u64,
+        count: usize,
+    ) {
         if let Ok(mut stats) = self.stats.lock() {
             stats.entry(name.to_string())
                 .or_default()
-                .record(elapsed_ns, count);
+                .record(inclusive_ns, exclusive_ns, count);
+        }
+
+        if is_per_thread_enabled() {
+            let thread_id = format!("{:?}", std::thread::current().id());
+            if let Ok(mut stats) = self.per_thread_stats.lock() {
+                let thread_stats = stats.entry(thread_id).or_insert_with(HashMap::new);
+                thread_stats
+                    .entry(name.to_string())
+                    .or_default()
+                    .record(inclusive_ns, exclusive_ns, count);
+            }
         }
     }
     
@@ -232,11 +309,23 @@ impl ProfileCollector {
             .map(|s| s.clone())
             .unwrap_or_default()
     }
+
+    pub fn get_per_thread_stats(&self) -> HashMap<String, HashMap<String, OpStats>> {
+        self.per_thread_stats
+            .lock()
+            .map(|s| s.clone())
+            .unwrap_or_default()
+    }
     
     /// Write profile to JSON file
     pub fn write_profile(&self) -> std::io::Result<()> {
         let stats = self.get_stats();
         let elapsed_total = self.start_time.elapsed();
+        let per_thread = if is_per_thread_enabled() {
+            Some(self.get_per_thread_stats())
+        } else {
+            None
+        };
         
         let path = get_profile_path();
         let mut file = std::fs::File::create(&path)?;
@@ -246,14 +335,16 @@ impl ProfileCollector {
         writeln!(file, "  \"operations\": {{")?;
         
         let mut entries: Vec<_> = stats.iter().collect();
-        entries.sort_by(|a, b| b.1.total_ns.cmp(&a.1.total_ns)); // Sort by total time
+        entries.sort_by(|a, b| b.1.total_inclusive_ns.cmp(&a.1.total_inclusive_ns));
         
         for (i, (name, op)) in entries.iter().enumerate() {
             let comma = if i < entries.len() - 1 { "," } else { "" };
             writeln!(file, "    \"{}\": {{", name)?;
             writeln!(file, "      \"count\": {},", op.count)?;
-            writeln!(file, "      \"total_ms\": {:.3},", op.total_ns as f64 / 1_000_000.0)?;
+            writeln!(file, "      \"total_ms\": {:.3},", op.total_inclusive_ns as f64 / 1_000_000.0)?;
+            writeln!(file, "      \"self_ms\": {:.3},", op.total_exclusive_ns as f64 / 1_000_000.0)?;
             writeln!(file, "      \"mean_us\": {:.2},", op.mean_ns() / 1_000.0)?;
+            writeln!(file, "      \"mean_self_us\": {:.2},", op.mean_exclusive_ns() / 1_000.0)?;
             writeln!(file, "      \"min_us\": {:.2},", op.min_ns as f64 / 1_000.0)?;
             writeln!(file, "      \"max_us\": {:.2},", op.max_ns as f64 / 1_000.0)?;
             if op.item_count > 0 && op.item_count != op.count {
@@ -266,7 +357,44 @@ impl ProfileCollector {
         }
         
         writeln!(file, "  }}")?;
-        writeln!(file, "}}")?;
+
+        if let Some(per_thread) = per_thread {
+            writeln!(file, ",  \"threads\": {{")?;
+            let mut thread_entries: Vec<_> = per_thread.iter().collect();
+            thread_entries.sort_by(|a, b| a.0.cmp(b.0));
+
+            for (t_index, (thread_id, stats)) in thread_entries.iter().enumerate() {
+                let thread_comma = if t_index < thread_entries.len() - 1 { "," } else { "" };
+                writeln!(file, "    \"{}\": {{", thread_id)?;
+
+                let mut op_entries: Vec<_> = stats.iter().collect();
+                op_entries.sort_by(|a, b| b.1.total_inclusive_ns.cmp(&a.1.total_inclusive_ns));
+                for (i, (name, op)) in op_entries.iter().enumerate() {
+                    let comma = if i < op_entries.len() - 1 { "," } else { "" };
+                    writeln!(file, "      \"{}\": {{", name)?;
+                    writeln!(file, "        \"count\": {},", op.count)?;
+                    writeln!(file, "        \"total_ms\": {:.3},", op.total_inclusive_ns as f64 / 1_000_000.0)?;
+                    writeln!(file, "        \"self_ms\": {:.3},", op.total_exclusive_ns as f64 / 1_000_000.0)?;
+                    writeln!(file, "        \"mean_us\": {:.2},", op.mean_ns() / 1_000.0)?;
+                    writeln!(file, "        \"mean_self_us\": {:.2},", op.mean_exclusive_ns() / 1_000.0)?;
+                    writeln!(file, "        \"min_us\": {:.2},", op.min_ns as f64 / 1_000.0)?;
+                    writeln!(file, "        \"max_us\": {:.2},", op.max_ns as f64 / 1_000.0)?;
+                    if op.item_count > 0 && op.item_count != op.count {
+                        writeln!(file, "        \"item_count\": {},", op.item_count)?;
+                        writeln!(file, "        \"per_item_us\": {:.2}", op.per_item_ns() / 1_000.0)?;
+                    } else {
+                        writeln!(file, "        \"item_count\": {}", op.item_count)?;
+                    }
+                    writeln!(file, "      }}{}", comma)?;
+                }
+
+                writeln!(file, "    }}{}", thread_comma)?;
+            }
+            writeln!(file, "  }}")?;
+            writeln!(file, "}}")?;
+        } else {
+            writeln!(file, "}}")?;
+        }
         
         eprintln!("[SOCHDB] Profile written to: {}", path);
         Ok(())
@@ -282,12 +410,12 @@ impl ProfileCollector {
         eprintln!("╠══════════════════════════════════════════════════════════════════════════╣");
         eprintln!("║ Total elapsed: {:>8.2} ms                                              ║", 
                   elapsed_total.as_secs_f64() * 1000.0);
-        eprintln!("╠════════════════════════════════╦═════════╦══════════╦═════════╦══════════╣");
-        eprintln!("║ Operation                      ║  Count  ║ Total ms ║ Mean µs ║ Items    ║");
-        eprintln!("╠════════════════════════════════╬═════════╬══════════╬═════════╬══════════╣");
+        eprintln!("╠════════════════════════════════╦═════════╦══════════╦══════════╦══════════╣");
+        eprintln!("║ Operation                      ║  Count  ║ Total ms ║  Self ms ║ Items    ║");
+        eprintln!("╠════════════════════════════════╬═════════╬══════════╬══════════╬══════════╣");
         
         let mut entries: Vec<_> = stats.iter().collect();
-        entries.sort_by(|a, b| b.1.total_ns.cmp(&a.1.total_ns));
+        entries.sort_by(|a, b| b.1.total_inclusive_ns.cmp(&a.1.total_inclusive_ns));
         
         for (name, op) in entries.iter().take(15) {
             let name_truncated: String = if name.len() > 30 {
@@ -298,8 +426,8 @@ impl ProfileCollector {
             eprintln!("║ {:30} ║ {:>7} ║ {:>8.2} ║ {:>7.1} ║ {:>8} ║",
                      name_truncated,
                      op.count,
-                     op.total_ns as f64 / 1_000_000.0,
-                     op.mean_ns() / 1_000.0,
+                     op.total_inclusive_ns as f64 / 1_000_000.0,
+                     op.total_exclusive_ns as f64 / 1_000_000.0,
                      op.item_count);
         }
         
@@ -521,12 +649,13 @@ mod tests {
     #[test]
     fn test_op_stats() {
         let mut stats = OpStats::default();
-        stats.record(1000, 1);
-        stats.record(2000, 1);
-        stats.record(3000, 1);
+        stats.record(1000, 800, 1);
+        stats.record(2000, 1600, 1);
+        stats.record(3000, 2400, 1);
         
         assert_eq!(stats.count, 3);
-        assert_eq!(stats.total_ns, 6000);
+        assert_eq!(stats.total_inclusive_ns, 6000);
+        assert_eq!(stats.total_exclusive_ns, 4800);
         assert_eq!(stats.min_ns, 1000);
         assert_eq!(stats.max_ns, 3000);
         assert!((stats.mean_ns() - 2000.0).abs() < 0.01);
@@ -535,7 +664,7 @@ mod tests {
     #[test]
     fn test_batch_stats() {
         let mut stats = OpStats::default();
-        stats.record(10_000, 100);  // 10µs for 100 items
+        stats.record(10_000, 8_000, 100);  // 10µs for 100 items
         
         assert_eq!(stats.count, 1);
         assert_eq!(stats.item_count, 100);

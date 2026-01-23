@@ -549,6 +549,16 @@ impl GroupCommitBuffer {
 └────────────────────────────────────────────────────────────────┘
 ```
 
+### Navigator Strategy (HNSW Baseline, Optional CHN)
+
+SochDB treats HNSW as the **default, correctness‑first** navigator. It is training‑free, robust under updates, and provides predictable tail behavior. A learned navigator (CHN) is **optional** and only enabled behind a feature gate with strict acceptance tests:
+
+- **Routing accuracy:** must meet recall@k vs. a fixed probe budget.
+- **Worst‑case fallback:** every CHN proposal must degrade to HNSW/IVF probing if confidence is low.
+- **Drift detection:** monitored accuracy triggers retraining or fallback to HNSW.
+
+This keeps production behavior stable while allowing controlled experimentation with learned routing.
+
 ### HNSW Parameters
 
 ```rust

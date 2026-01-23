@@ -12,9 +12,9 @@ categories.workspace = true
 description = "SochDB query engine (sync-first execution and vector query planning)"
 
 [dependencies]
-sochdb-core = { version = "0.4.1", path = "../sochdb-core" }
-sochdb-storage = { version = "0.4.1", path = "../sochdb-storage" }
-sochdb-index = { version = "0.4.1", path = "../sochdb-index" }
+sochdb-core = { version = "0.4.2", path = "../sochdb-core" }
+sochdb-storage = { version = "0.4.2", path = "../sochdb-storage" }
+sochdb-index = { version = "0.4.2", path = "../sochdb-index" }
 ndarray = "0.15"
 thiserror = { workspace = true }
 serde = { workspace = true }

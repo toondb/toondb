@@ -147,6 +147,17 @@ impl QuantizedVector {
             QuantizedVector::F16(_) | QuantizedVector::BF16(_) => None,
         }
     }
+
+    /// Get raw pointer for prefetching (Task #10)
+    /// Returns pointer to first element for cache prefetching
+    #[inline]
+    pub fn as_ptr(&self) -> *const f32 {
+        match self {
+            QuantizedVector::F32(arr) => arr.as_ptr(),
+            // For F16/BF16, return null - prefetch won't help anyway due to conversion
+            QuantizedVector::F16(_) | QuantizedVector::BF16(_) => std::ptr::null(),
+        }
+    }
 }
 
 /// Fast dot product for quantized vectors (converted to f32 on-the-fly)

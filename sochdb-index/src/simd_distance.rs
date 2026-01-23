@@ -234,19 +234,51 @@ pub unsafe fn l2_squared_avx2(a: &[f32], b: &[f32]) -> f32 {
     use std::arch::x86_64::*;
     
     let n = a.len();
-    let mut sum = _mm256_setzero_ps();
+    let mut sum0 = _mm256_setzero_ps();
+    let mut sum1 = _mm256_setzero_ps();
+    let mut sum2 = _mm256_setzero_ps();
+    let mut sum3 = _mm256_setzero_ps();
     
     let chunks = n / 8;
+    let chunks4 = chunks / 4;
     let a_ptr = a.as_ptr();
     let b_ptr = b.as_ptr();
     
-    for i in 0..chunks {
+    for i in 0..chunks4 {
+        let base = i * 32;
+
+        let va0 = _mm256_loadu_ps(a_ptr.add(base));
+        let vb0 = _mm256_loadu_ps(b_ptr.add(base));
+        let diff0 = _mm256_sub_ps(va0, vb0);
+        sum0 = _mm256_fmadd_ps(diff0, diff0, sum0);
+
+        let va1 = _mm256_loadu_ps(a_ptr.add(base + 8));
+        let vb1 = _mm256_loadu_ps(b_ptr.add(base + 8));
+        let diff1 = _mm256_sub_ps(va1, vb1);
+        sum1 = _mm256_fmadd_ps(diff1, diff1, sum1);
+
+        let va2 = _mm256_loadu_ps(a_ptr.add(base + 16));
+        let vb2 = _mm256_loadu_ps(b_ptr.add(base + 16));
+        let diff2 = _mm256_sub_ps(va2, vb2);
+        sum2 = _mm256_fmadd_ps(diff2, diff2, sum2);
+
+        let va3 = _mm256_loadu_ps(a_ptr.add(base + 24));
+        let vb3 = _mm256_loadu_ps(b_ptr.add(base + 24));
+        let diff3 = _mm256_sub_ps(va3, vb3);
+        sum3 = _mm256_fmadd_ps(diff3, diff3, sum3);
+    }
+
+    for i in (chunks4 * 4)..chunks {
         let offset = i * 8;
         let va = _mm256_loadu_ps(a_ptr.add(offset));
         let vb = _mm256_loadu_ps(b_ptr.add(offset));
         let diff = _mm256_sub_ps(va, vb);
-        sum = _mm256_fmadd_ps(diff, diff, sum);
+        sum0 = _mm256_fmadd_ps(diff, diff, sum0);
     }
+
+    let sum01 = _mm256_add_ps(sum0, sum1);
+    let sum23 = _mm256_add_ps(sum2, sum3);
+    let sum = _mm256_add_ps(sum01, sum23);
     
     // Horizontal sum
     let sum_high = _mm256_extractf128_ps(sum, 1);
@@ -517,6 +549,86 @@ pub unsafe fn dot_product_neon(a: &[f32], b: &[f32]) -> f32 {
     }
 }
 
+/// Task #7: High-ILP NEON fused cosine distance (computes dot, norm_a, norm_b in one pass)
+/// Uses 6 accumulators (2 per metric) to saturate FMLA throughput on Apple Silicon
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn cosine_distance_neon_fused(a: &[f32], b: &[f32]) -> f32 {
+    use std::arch::aarch64::*;
+    
+    unsafe {
+        let n = a.len();
+        
+        // 6 accumulators for ILP: 2 each for dot, norm_a, norm_b
+        let mut dot0 = vdupq_n_f32(0.0);
+        let mut dot1 = vdupq_n_f32(0.0);
+        let mut norm_a0 = vdupq_n_f32(0.0);
+        let mut norm_a1 = vdupq_n_f32(0.0);
+        let mut norm_b0 = vdupq_n_f32(0.0);
+        let mut norm_b1 = vdupq_n_f32(0.0);
+        
+        let a_ptr = a.as_ptr();
+        let b_ptr = b.as_ptr();
+        
+        // Process 8 floats per iteration (2 × 4-wide NEON)
+        let mut i = 0;
+        while i + 8 <= n {
+            let va0 = vld1q_f32(a_ptr.add(i));
+            let vb0 = vld1q_f32(b_ptr.add(i));
+            let va1 = vld1q_f32(a_ptr.add(i + 4));
+            let vb1 = vld1q_f32(b_ptr.add(i + 4));
+            
+            // All 6 FMLAs are independent - CPU can issue in parallel
+            dot0 = vfmaq_f32(dot0, va0, vb0);
+            dot1 = vfmaq_f32(dot1, va1, vb1);
+            norm_a0 = vfmaq_f32(norm_a0, va0, va0);
+            norm_a1 = vfmaq_f32(norm_a1, va1, va1);
+            norm_b0 = vfmaq_f32(norm_b0, vb0, vb0);
+            norm_b1 = vfmaq_f32(norm_b1, vb1, vb1);
+            
+            i += 8;
+        }
+        
+        // Process remaining 4-element chunks
+        while i + 4 <= n {
+            let va = vld1q_f32(a_ptr.add(i));
+            let vb = vld1q_f32(b_ptr.add(i));
+            dot0 = vfmaq_f32(dot0, va, vb);
+            norm_a0 = vfmaq_f32(norm_a0, va, va);
+            norm_b0 = vfmaq_f32(norm_b0, vb, vb);
+            i += 4;
+        }
+        
+        // Merge accumulators
+        let dot_sum = vaddq_f32(dot0, dot1);
+        let norm_a_sum = vaddq_f32(norm_a0, norm_a1);
+        let norm_b_sum = vaddq_f32(norm_b0, norm_b1);
+        
+        let mut dot = vaddvq_f32(dot_sum);
+        let mut norm_a_sq = vaddvq_f32(norm_a_sum);
+        let mut norm_b_sq = vaddvq_f32(norm_b_sum);
+        
+        // Handle remainder
+        for j in i..n {
+            let av = *a.get_unchecked(j);
+            let bv = *b.get_unchecked(j);
+            dot += av * bv;
+            norm_a_sq += av * av;
+            norm_b_sq += bv * bv;
+        }
+        
+        let norm_a = norm_a_sq.sqrt();
+        let norm_b = norm_b_sq.sqrt();
+        
+        if norm_a < 1e-10 || norm_b < 1e-10 {
+            1.0
+        } else {
+            1.0 - (dot / (norm_a * norm_b))
+        }
+    }
+}
+
 // ============================================================================
 // Convenience Functions
 // ============================================================================
@@ -537,6 +649,47 @@ pub fn dot_product(a: &[f32], b: &[f32]) -> f32 {
 #[inline]
 pub fn cosine_distance(a: &[f32], b: &[f32]) -> f32 {
     DistanceKernel::detect().cosine_distance(a, b)
+}
+
+// ============================================================================
+// ULTRA-FAST STATIC DISPATCH (Zero overhead - used by search_fast)
+// ============================================================================
+
+/// Static cached kernel for zero-overhead dispatch
+static CACHED_KERNEL: OnceLock<DistanceKernel> = OnceLock::new();
+
+fn get_kernel() -> &'static DistanceKernel {
+    CACHED_KERNEL.get_or_init(DistanceKernel::detect)
+}
+
+/// Ultra-fast L2 distance (static dispatch, no heap allocation)
+#[inline(always)]
+pub fn l2_distance_fast(a: &[f32], b: &[f32]) -> f32 {
+    get_kernel().l2_squared(a, b).sqrt()
+}
+
+/// Ultra-fast dot product (static dispatch, no heap allocation)
+#[inline(always)]
+pub fn dot_product_fast(a: &[f32], b: &[f32]) -> f32 {
+    get_kernel().dot_product(a, b)
+}
+
+/// Ultra-fast cosine distance (static dispatch, no heap allocation)  
+/// 
+/// For normalized vectors (unit length), this is just 1 - dot_product.
+/// For non-normalized vectors, computes full cosine distance.
+#[inline(always)]
+pub fn cosine_distance_fast(a: &[f32], b: &[f32]) -> f32 {
+    // Check if we're on aarch64 and can use fused implementation
+    #[cfg(target_arch = "aarch64")]
+    {
+        return unsafe { cosine_distance_neon_fused(a, b) };
+    }
+    
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        get_kernel().cosine_distance(a, b)
+    }
 }
 
 /// Threshold-aware L2 squared distance with early abort

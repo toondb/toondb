@@ -98,7 +98,9 @@
 
 use dashmap::DashMap;
 use smallvec::SmallVec;
+use std::cell::RefCell;
 use std::collections::BinaryHeap;
+use std::cmp::Reverse;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicPtr, AtomicU64, AtomicUsize, Ordering};
 
@@ -325,9 +327,63 @@ impl Ord for SearchCandidate {
     }
 }
 
+struct SearchScratch {
+    visited_epoch: Vec<u32>,
+    epoch: u32,
+    candidates: BinaryHeap<SearchCandidate>,
+    results: BinaryHeap<Reverse<SearchCandidate>>,
+}
+
+impl Default for SearchScratch {
+    fn default() -> Self {
+        Self {
+            visited_epoch: Vec::new(),
+            epoch: 0,
+            candidates: BinaryHeap::new(),
+            results: BinaryHeap::new(),
+        }
+    }
+}
+
+impl SearchScratch {
+    fn prepare(&mut self, max_index: usize) {
+        if self.visited_epoch.len() < max_index {
+            self.visited_epoch.resize(max_index, 0);
+        }
+        self.epoch = self.epoch.wrapping_add(1);
+        if self.epoch == 0 {
+            self.visited_epoch.fill(0);
+            self.epoch = 1;
+        }
+        self.candidates.clear();
+        self.results.clear();
+    }
+
+    #[inline]
+    fn is_visited(&self, index: usize) -> bool {
+        self.visited_epoch
+            .get(index)
+            .map(|v| *v == self.epoch)
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    fn mark_visited(&mut self, index: usize) {
+        if index >= self.visited_epoch.len() {
+            self.visited_epoch.resize(index + 1, 0);
+        }
+        self.visited_epoch[index] = self.epoch;
+    }
+}
+
+thread_local! {
+    static SEARCH_SCRATCH: RefCell<SearchScratch> = RefCell::new(SearchScratch::default());
+}
+
 /// Lock-free HNSW node
 pub struct LockFreeNode {
     pub id: NodeId,
+    pub dense_index: u32,
     pub vector: QuantizedVector,
     /// Neighbor lists per layer
     pub layers: Vec<AtomicNeighborList>,
@@ -336,13 +392,14 @@ pub struct LockFreeNode {
 }
 
 impl LockFreeNode {
-    pub fn new(id: NodeId, vector: QuantizedVector, max_layer: usize) -> Self {
+    pub fn new(id: NodeId, dense_index: u32, vector: QuantizedVector, max_layer: usize) -> Self {
         let mut layers = Vec::with_capacity(max_layer + 1);
         for _ in 0..=max_layer {
             layers.push(AtomicNeighborList::new());
         }
         Self {
             id,
+            dense_index,
             vector,
             layers,
             max_layer,
@@ -389,6 +446,8 @@ pub struct LockFreeHnsw {
     config: LockFreeHnswConfig,
     /// Statistics
     stats: HnswStats,
+    /// Dense index allocator for visited-epoch bitset
+    next_dense_index: AtomicUsize,
 }
 
 /// HNSW statistics
@@ -415,6 +474,7 @@ impl LockFreeHnsw {
             entry_layer: AtomicUsize::new(0),
             config,
             stats: HnswStats::default(),
+            next_dense_index: AtomicUsize::new(0),
         }
     }
 
@@ -435,7 +495,8 @@ impl LockFreeHnsw {
     /// Insert a new node
     pub fn insert(&self, id: NodeId, vector: QuantizedVector) {
         let level = self.random_level();
-        let node = Arc::new(LockFreeNode::new(id, vector, level));
+        let dense_index = self.next_dense_index.fetch_add(1, Ordering::Relaxed) as u32;
+        let node = Arc::new(LockFreeNode::new(id, dense_index, vector, level));
 
         // Insert into nodes map
         self.nodes.insert(id, node.clone());
@@ -566,11 +627,16 @@ impl LockFreeHnsw {
                     id: new_neighbor,
                 });
 
-                // Sort by distance and take top max_conn
-                candidates.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap());
+                if candidates.len() > max_conn {
+                    let (_left, _nth, _right) = candidates.select_nth_unstable_by(
+                        max_conn,
+                        |a, b| a.distance.partial_cmp(&b.distance).unwrap(),
+                    );
+                    candidates.truncate(max_conn);
+                }
+
                 candidates
                     .into_iter()
-                    .take(max_conn)
                     .map(|c| c.id)
                     .collect()
             },
@@ -597,72 +663,84 @@ impl LockFreeHnsw {
             None => return vec![],
         };
 
-        let mut candidates = BinaryHeap::new();
-        let mut visited = std::collections::HashSet::new();
+        let max_index = self.next_dense_index.load(Ordering::Acquire);
 
-        let initial_dist = self.distance(query, &entry_node.vector);
-        candidates.push(SearchCandidate {
-            distance: initial_dist,
-            id: entry_id,
-        });
-        visited.insert(entry_id);
+        SEARCH_SCRATCH.with(|scratch_cell| {
+            let mut scratch = scratch_cell.borrow_mut();
+            scratch.prepare(max_index);
 
-        let mut results = BinaryHeap::new();
-        results.push(std::cmp::Reverse(SearchCandidate {
-            distance: initial_dist,
-            id: entry_id,
-        }));
+            let initial_dist = self.distance(query, &entry_node.vector);
+            scratch.candidates.push(SearchCandidate {
+                distance: initial_dist,
+                id: entry_id,
+            });
+            scratch.mark_visited(entry_node.dense_index as usize);
 
-        while let Some(current) = candidates.pop() {
-            // Check stopping condition
-            if let Some(worst) = results.peek()
-                && current.distance > worst.0.distance
-                && results.len() >= ef
-            {
-                break;
-            }
+            scratch.results.push(Reverse(SearchCandidate {
+                distance: initial_dist,
+                id: entry_id,
+            }));
 
-            // Get neighbors
-            let node = match self.nodes.get(&current.id) {
-                Some(n) => n.clone(),
-                None => continue,
-            };
-
-            if layer >= node.layers.len() {
-                continue;
-            }
-
-            let neighbors = node.layers[layer].read();
-
-            for &neighbor_id in &neighbors {
-                if visited.insert(neighbor_id)
-                    && let Some(neighbor_node) = self.nodes.get(&neighbor_id)
+            while let Some(current) = scratch.candidates.pop() {
+                if let Some(worst) = scratch.results.peek()
+                    && current.distance > worst.0.distance
+                    && scratch.results.len() >= ef
                 {
+                    break;
+                }
+
+                let node = match self.nodes.get(&current.id) {
+                    Some(n) => n.clone(),
+                    None => continue,
+                };
+
+                if layer >= node.layers.len() {
+                    continue;
+                }
+
+                let neighbors = node.layers[layer].read();
+
+                for &neighbor_id in &neighbors {
+                    let neighbor_node = match self.nodes.get(&neighbor_id) {
+                        Some(n) => n.clone(),
+                        None => continue,
+                    };
+                    let neighbor_index = neighbor_node.dense_index as usize;
+                    if scratch.is_visited(neighbor_index) {
+                        continue;
+                    }
+                    scratch.mark_visited(neighbor_index);
+
                     let dist = self.distance(query, &neighbor_node.vector);
 
-                    if results.len() < ef
-                        || dist < results.peek().map(|r| r.0.distance).unwrap_or(f32::MAX)
+                    if scratch.results.len() < ef
+                        || dist < scratch.results.peek().map(|r| r.0.distance).unwrap_or(f32::MAX)
                     {
-                        candidates.push(SearchCandidate {
+                        scratch.candidates.push(SearchCandidate {
                             distance: dist,
                             id: neighbor_id,
                         });
-                        results.push(std::cmp::Reverse(SearchCandidate {
+                        scratch.results.push(Reverse(SearchCandidate {
                             distance: dist,
                             id: neighbor_id,
                         }));
 
-                        if results.len() > ef {
-                            results.pop();
+                        if scratch.results.len() > ef {
+                            scratch.results.pop();
                         }
                     }
                 }
             }
-        }
 
-        let mut result: Vec<_> = results.into_iter().map(|r| r.0).collect();
-        result.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap());
-        result
+            let mut result: Vec<_> = scratch
+                .results
+                .drain()
+                .map(|r| r.0)
+                .collect();
+            result.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap());
+            scratch.candidates.clear();
+            result
+        })
     }
 
     /// Search for k nearest neighbors

@@ -91,6 +91,11 @@ pub mod trace;
 pub mod transaction;
 pub mod vectors;
 
+// Task implementations for SQL and WAL
+pub mod sql_entry;        // Task 12: Unified SQL entry point
+pub mod wal_atomic;       // Task 14: WAL-disciplined atomic writes
+pub mod intent_recovery;  // Task 15: Intent recovery + GC
+
 use crate::error::Result;
 
 /// Trait for database connection operations.
@@ -270,7 +275,7 @@ impl SochClient {
 
     /// Execute raw SOCH-QL query
     pub fn execute(&self, sql: &str) -> Result<QueryResult> {
-        self.connection.query_sql(sql)
+        self.connection.query_ast(sql)
     }
 
     /// Get connection for direct access

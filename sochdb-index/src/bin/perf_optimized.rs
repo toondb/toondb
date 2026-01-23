@@ -1,10 +1,16 @@
 use std::time::Instant;
 use sochdb_index::hnsw::{HnswIndex, HnswConfig, DistanceMetric};
+use sochdb_index::profiling::{PROFILE_COLLECTOR, is_profiling_enabled};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let dimension = 768;
-    let num_vectors = 10000;
+    // Enable profiling via env (SOCHDB_PROFILING=1)
+    // SAFETY: We're setting this before any threads are spawned
+    unsafe { std::env::set_var("SOCHDB_PROFILING", "1") };
     
+    let dimension = 768;
+    let num_vectors = 1000;  // Use 1000 for consistent benchmarking
+    
+    println!("Profiling enabled: {}", is_profiling_enabled());
     println!("🚀 Testing {} vectors of dimension {} with OPTIMIZED parameters", num_vectors, dimension);
     
     // Create HNSW index with optimized configuration
@@ -67,7 +73,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("• Adaptive ef_construction: ACTIVE (batch mode)");
     println!("• Lock contention reduction: ACTIVE");  
     println!("• Parallel wave processing: ACTIVE");
+    println!("• O(1) internal_nodes lookup: ACTIVE");
     println!("• Compilation errors: FIXED ✅");
+    
+    println!("\n=== 📊 PROFILE DATA ===");
+    PROFILE_COLLECTOR.print_summary();
     
     Ok(())
 }

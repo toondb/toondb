@@ -15,10 +15,10 @@ readme = "README.md"
 
 [dependencies]
 # Internal crates
-sochdb-core = { version = "0.4.1", path = "../sochdb-core", features = ["analytics"] }
-sochdb-storage = { version = "0.4.1", path = "../sochdb-storage" }
-sochdb-index = { version = "0.4.1", path = "../sochdb-index" }
-sochdb-query = { version = "0.4.1", path = "../sochdb-query" }
+sochdb-core = { version = "0.4.2", path = "../sochdb-core", features = ["analytics"] }
+sochdb-storage = { version = "0.4.2", path = "../sochdb-storage" }
+sochdb-index = { version = "0.4.2", path = "../sochdb-index" }
+sochdb-query = { version = "0.4.2", path = "../sochdb-query" }
 
 # Synchronization
 parking_lot = "0.12"
@@ -40,6 +40,8 @@ hashbrown = "0.14"
 
 # Regex for LIKE pattern matching
 regex = "1.10"
+tracing = "0.1"
+crc32fast = "1.4"
 
 [dev-dependencies]
 tempfile = "3.10"

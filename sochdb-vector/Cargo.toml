@@ -12,9 +12,9 @@ path = "src/lib.rs"
 
 [dependencies]
 # SochDB dependencies
-sochdb-core = { version = "0.4.1", path = "../sochdb-core" }
-sochdb-storage = { version = "0.4.1", path = "../sochdb-storage" }
-sochdb-index = { version = "0.4.1", path = "../sochdb-index" }
+sochdb-core = { version = "0.4.2", path = "../sochdb-core" }
+sochdb-storage = { version = "0.4.2", path = "../sochdb-storage" }
+sochdb-index = { version = "0.4.2", path = "../sochdb-index" }
 
 # Memory mapping for segment files
 memmap2 = "0.9"

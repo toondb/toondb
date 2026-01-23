@@ -86,7 +86,6 @@ pub mod unified_quant; // Unified quantization contract: F32/F16/BF16/I8/PQ/BPS 
 pub mod vamana;
 pub mod vector;
 pub mod vector_arena; // Arena-based vector storage (Task 3)
-pub mod vector_hnsw;
 pub mod vector_quantized;
 pub mod vector_simd;
 pub mod vector_storage;
@@ -96,11 +95,9 @@ pub mod atomic_entry_point; // Lock-free entry point + max_layer via packed atom
 pub mod prefetch_scan;
 pub mod predicated_simd; // Predicated SIMD kernels with masked operations (P0 optimization)
 pub mod simd_batch_distance; // SIMD batch distance with tiled processing (Task 8)
-pub mod simd_scan; // SIMD-accelerated column scans (Task 5) // Prefetch-optimized sequential scans (Task 6)
-pub mod hnsw_parallel; // Parallel HNSW build with deferred backedges (Task 7)
+pub mod simd_scan; // SIMD-accelerated column scans (Task 5)
 
 // Performance optimization modules (jj.txt optimizations)
-pub mod hnsw_batch_parallel; // Two-Phase Parallel HNSW Batch Insert with micro-wave algorithm
 pub mod simd_distance; // SIMD Distance Kernels for HNSW (AVX2/AVX-512/NEON)
 pub mod contiguous_graph; // Contiguous Graph Memory Layout (flattened neighbor lists)
 pub mod zero_copy_batch;

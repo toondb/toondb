@@ -328,8 +328,6 @@ impl<'a> StagedBuilder<'a> {
                 }
             }
             
-            // Intra-wave connectivity: connect wave nodes to each other
-            // This ensures wave nodes are reachable from the graph
             self.connect_wave_nodes(wave_batch);
         }
         
@@ -416,8 +414,18 @@ impl<'a> StagedBuilder<'a> {
             layers.push(RwLock::new(VersionedNeighbors::new()));
         }
         
+        let dense_index = self.index.next_dense_index.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as u32;
+        self.index.record_dense_id(dense_index, id);
+        let vector_index = {
+            let mut store = self.index.vector_store.write();
+            let idx = store.len() as u32;
+            store.push(quantized.clone());
+            idx
+        };
         let node = Arc::new(HnswNode {
             id,
+            dense_index,
+            vector_index,
             vector: quantized.clone(),
             storage_id: None,
             layer,
@@ -487,7 +495,8 @@ impl<'a> StagedBuilder<'a> {
             // Set forward edges (we own this node, no contention)
             {
                 let mut layer_data = node.layers[lc].write();
-                layer_data.neighbors = selected.iter().map(|c| c.id).collect();
+                let ids: Vec<u128> = selected.iter().map(|c| c.id).collect();
+                layer_data.neighbors = self.index.ids_to_dense_neighbors(&ids);
                 layer_data.version += 1;
             }
             
@@ -548,24 +557,34 @@ impl<'a> StagedBuilder<'a> {
             };
             
             let mut layer_data = target_node.layers[layer].write();
+            let vector_store = self.index.vector_store.read();
+            let target_vector = vector_store
+                .get(target_node.vector_index as usize)
+                .unwrap_or(&target_node.vector);
             
             for source_id in sources {
+                let source_dense = match self.index.node_id_to_dense(source_id) {
+                    Some(dense) => dense,
+                    None => continue,
+                };
                 // Check if already a neighbor
-                if layer_data.neighbors.contains(&source_id) {
+                if layer_data.neighbors.contains(&source_dense) {
                     continue;
                 }
                 
                 // Add if capacity allows
                 if layer_data.neighbors.len() < max_connections {
-                    layer_data.neighbors.push(source_id);
+                    layer_data.neighbors.push(source_dense);
                     layer_data.version += 1;
                     applied += 1;
                 } else {
                     // Need to prune - check if new edge is better than worst
                     if let Some(source_node) = self.index.nodes.get(&source_id) {
                         let new_dist = self.calculate_distance(
-                            &target_node.vector,
-                            &source_node.vector
+                            target_vector,
+                            vector_store
+                                .get(source_node.vector_index as usize)
+                                .unwrap_or(&source_node.vector)
                         );
                         
                         // Find worst current neighbor
@@ -573,15 +592,22 @@ impl<'a> StagedBuilder<'a> {
                             .iter()
                             .enumerate()
                             .filter_map(|(i, &nid)| {
-                                self.index.nodes.get(&nid).map(|n| {
-                                    (i, self.calculate_distance(&target_node.vector, &n.vector))
+                                self.index.dense_to_node_id(nid).and_then(|id| {
+                                    self.index.nodes.get(&id).map(|n| {
+                                        (i, self.calculate_distance(
+                                            target_vector,
+                                            vector_store
+                                                .get(n.vector_index as usize)
+                                                .unwrap_or(&n.vector),
+                                        ))
+                                    })
                                 })
                             })
                             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
                         
                         if let Some((worst_idx, worst_dist)) = worst {
                             if new_dist < worst_dist {
-                                layer_data.neighbors[worst_idx] = source_id;
+                                layer_data.neighbors[worst_idx] = source_dense;
                                 layer_data.version += 1;
                                 applied += 1;
                             }
@@ -604,7 +630,10 @@ impl<'a> StagedBuilder<'a> {
         
         for (id, _) in wave_batch {
             if let Some(node) = self.index.nodes.get(id) {
-                let node_vec = &node.vector;
+                let vector_store = self.index.vector_store.read();
+                let node_vec = vector_store
+                    .get(node.vector_index as usize)
+                    .unwrap_or(&node.vector);
                 
                 // Find closest wave neighbors
                 let mut wave_distances: Vec<(u128, f32)> = wave_ids
@@ -612,7 +641,12 @@ impl<'a> StagedBuilder<'a> {
                     .filter(|&wid| wid != id)
                     .filter_map(|&wid| {
                         self.index.nodes.get(&wid).map(|wnode| {
-                            (wid, self.calculate_distance(node_vec, &wnode.vector))
+                            (wid, self.calculate_distance(
+                                node_vec,
+                                vector_store
+                                    .get(wnode.vector_index as usize)
+                                    .unwrap_or(&wnode.vector),
+                            ))
                         })
                     })
                     .collect();
@@ -625,9 +659,13 @@ impl<'a> StagedBuilder<'a> {
                 
                 let mut layer_data = node.layers[0].write();
                 for (wid, _) in wave_distances.into_iter().take(num_to_add) {
-                    if !layer_data.neighbors.contains(&wid) && layer_data.neighbors.len() < max_connections {
-                        layer_data.neighbors.push(wid);
-                        layer_data.version += 1;
+                    if let Some(wid_dense) = self.index.node_id_to_dense(wid) {
+                        if !layer_data.neighbors.contains(&wid_dense)
+                            && layer_data.neighbors.len() < max_connections
+                        {
+                            layer_data.neighbors.push(wid_dense);
+                            layer_data.version += 1;
+                        }
                     }
                 }
             }
@@ -700,30 +738,37 @@ impl<'a> StagedBuilder<'a> {
                 SmallVec::new()
             };
             
-            for &neighbor_id in &neighbors {
-                if visited.insert(neighbor_id) {
-                    if let Some(neighbor_node) = self.index.nodes.get(&neighbor_id) {
-                        let dist = self.calculate_distance(query, &neighbor_node.vector);
-                        let candidate = SearchCandidate {
-                            distance: dist,
-                            id: neighbor_id,
-                        };
-                        
-                        // Add to candidates if promising
-                        let dominated = results.len() >= ef && {
-                            if let Some(std::cmp::Reverse(worst)) = results.peek() {
-                                dist > worst.distance
-                            } else {
-                                false
-                            }
-                        };
-                        
-                        if !dominated {
-                            candidates.push(candidate.clone());
-                            results.push(std::cmp::Reverse(candidate));
+            let vector_store = self.index.vector_store.read();
+            for &neighbor_dense in &neighbors {
+                if let Some(neighbor_id) = self.index.dense_to_node_id(neighbor_dense) {
+                    if visited.insert(neighbor_id) {
+                        if let Some(neighbor_node) = self.index.nodes.get(&neighbor_id) {
+                            let dist = self.calculate_distance(
+                                query,
+                                vector_store
+                                    .get(neighbor_node.vector_index as usize)
+                                    .unwrap_or(&neighbor_node.vector),
+                            );
+                            let candidate = SearchCandidate {
+                                distance: dist,
+                                id: neighbor_id,
+                            };
+                            // Add to candidates if promising
+                            let dominated = results.len() >= ef && {
+                                if let Some(std::cmp::Reverse(worst)) = results.peek() {
+                                    dist > worst.distance
+                                } else {
+                                    false
+                                }
+                            };
                             
-                            if results.len() > ef {
-                                results.pop();
+                            if !dominated {
+                                candidates.push(candidate.clone());
+                                results.push(std::cmp::Reverse(candidate));
+                                
+                                if results.len() > ef {
+                                    results.pop();
+                                }
                             }
                         }
                     }

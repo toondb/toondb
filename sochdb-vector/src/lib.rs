@@ -59,6 +59,19 @@ pub mod hybrid; // Hybrid search with RRF fusion
 pub mod multi_vector; // Multi-vector documents with aggregation
 pub mod tombstones; // Tombstone-based logical deletion
 
+// Task implementations for operationalized vector search
+pub mod cost_model;           // Task 1: Cost model budgets
+pub mod guarantee_ladder;     // Task 2: Guarantee ladder modes
+pub mod list_bounds;          // Task 3: Cosine/Dot list bounds
+pub mod compressed_routing;   // Task 4: Routing cache-resident
+pub mod quantization_calibration; // Task 5: Quantization error calibration
+pub mod portable_simd;        // Task 6: Portable SIMD kernels
+pub mod filter_indexing;      // Task 7: Cardinality-aware filter indexing
+pub mod ssd_rerank;           // Task 8: SSD rerank executor
+pub mod segment_compaction;   // Task 9: Drift-resilient compaction
+pub mod query_telemetry;      // Task 10: Per-query telemetry
+pub mod hot_path_layout;      // Task 16: Vector hot-path layout
+
 // Re-export main types
 pub use config::EngineConfig;
 pub use error::{Error, Result};

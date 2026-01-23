@@ -331,6 +331,108 @@ pub unsafe extern "C" fn hnsw_search(
     }
 }
 
+/// Ultra-fast search optimized for robotics/edge use cases.
+/// 
+/// This uses a zero-allocation hot path with direct SIMD for sub-millisecond latency.
+/// 
+/// # Safety
+/// All pointers must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hnsw_search_fast(
+    ptr: *mut HnswIndexPtr,
+    query: *const c_float,
+    query_len: usize,
+    k: usize,
+    results_out: *mut CSearchResult,
+    num_results_out: *mut usize,
+) -> c_int {
+    if ptr.is_null() || query.is_null() || results_out.is_null() || num_results_out.is_null() {
+        return -1;
+    }
+    
+    unsafe {
+        let index = &(*ptr).0;
+        let query_vec = slice::from_raw_parts(query, query_len);
+        
+        match index.search_fast(query_vec, k) {
+            Ok(results) => {
+                let num = results.len().min(k);
+                *num_results_out = num;
+                
+                for (i, (id, distance)) in results.into_iter().take(k).enumerate() {
+                    *results_out.add(i) = CSearchResult {
+                        id_lo: id as u64,
+                        id_hi: (id >> 64) as u64,
+                        distance: distance as c_float,
+                    };
+                }
+                0
+            }
+            Err(_) => -1,
+        }
+    }
+}
+
+/// Ultra-fast search using flat neighbor cache (ZERO per-node locks)
+/// 
+/// This is the fastest search path. Call `hnsw_build_flat_cache` after bulk inserts.
+/// 
+/// # Safety
+/// All pointers must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hnsw_search_ultra(
+    ptr: *mut HnswIndexPtr,
+    query: *const c_float,
+    query_len: usize,
+    k: usize,
+    results_out: *mut CSearchResult,
+    num_results_out: *mut usize,
+) -> c_int {
+    if ptr.is_null() || query.is_null() || results_out.is_null() || num_results_out.is_null() {
+        return -1;
+    }
+    
+    unsafe {
+        let index = &(*ptr).0;
+        let query_vec = slice::from_raw_parts(query, query_len);
+        
+        match index.search_ultra(query_vec, k) {
+            Ok(results) => {
+                let num = results.len().min(k);
+                *num_results_out = num;
+                
+                for (i, (id, distance)) in results.into_iter().take(k).enumerate() {
+                    *results_out.add(i) = CSearchResult {
+                        id_lo: id as u64,
+                        id_hi: (id >> 64) as u64,
+                        distance: distance as c_float,
+                    };
+                }
+                0
+            }
+            Err(_) => -1,
+        }
+    }
+}
+
+/// Build flat neighbor cache for ultra-fast search
+/// 
+/// Call this after bulk inserts. Pre-flattens all layer-0 neighbors
+/// into a contiguous array for ZERO per-node lock access during search.
+/// 
+/// # Safety
+/// `ptr` must be a valid pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hnsw_build_flat_cache(ptr: *mut HnswIndexPtr) -> c_int {
+    if ptr.is_null() {
+        return -1;
+    }
+    unsafe {
+        (*ptr).0.build_flat_neighbor_cache();
+        0
+    }
+}
+
 /// Get the number of vectors in the index.
 /// 
 /// # Safety
@@ -497,3 +599,49 @@ pub unsafe extern "C" fn hnsw_insert_flat(
 // - sochdb_profiling_record()
 //
 // They are exported directly from the profiling module with #[unsafe(no_mangle)].
+
+// =============================================================================
+// RUNTIME CONFIGURATION FFI FUNCTIONS
+// =============================================================================
+
+/// Set ef_search parameter at runtime for higher recall.
+/// 
+/// Higher ef_search = better recall but slower search.
+/// Recommended: ef_search >= 2 * k for good recall.
+/// 
+/// # Arguments
+/// * `ptr` - Index pointer from `hnsw_new`
+/// * `ef_search` - New ef_search value (search beam width)
+/// 
+/// # Returns
+/// 0 on success, -1 on error.
+/// 
+/// # Safety
+/// `ptr` must be a valid pointer from `hnsw_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hnsw_set_ef_search(
+    ptr: *mut HnswIndexPtr,
+    ef_search: usize,
+) -> c_int {
+    if ptr.is_null() || ef_search == 0 {
+        return -1;
+    }
+    
+    unsafe {
+        (*ptr).0.set_ef_search(ef_search);
+        0
+    }
+}
+
+/// Get current ef_search parameter.
+/// 
+/// # Safety
+/// `ptr` must be a valid pointer from `hnsw_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hnsw_get_ef_search(ptr: *mut HnswIndexPtr) -> usize {
+    if ptr.is_null() {
+        return 0;
+    }
+    
+    unsafe { (*ptr).0.get_ef_search() }
+}
