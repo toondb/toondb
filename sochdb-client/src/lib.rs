@@ -80,6 +80,7 @@ pub mod graph;
 pub mod path_query;
 pub mod policy;
 pub mod query;
+pub mod queue; // First-class Queue API with ordered-key task entries (Task: Queue Optimization)
 pub mod recovery;
 pub mod result;
 pub mod routing;
@@ -463,4 +464,10 @@ pub mod prelude {
         VectorCollection,
     };
     pub use sochdb_core::soch::{SochType, SochValue};
+    
+    // Queue API re-exports
+    pub use crate::queue::{
+        DequeueResult, MultiColumnTopK, OrderByLimitStrategy, PriorityQueue, QueueConfig,
+        QueueKey, QueueStats, StreamingTopK, Task, TaskState,
+    };
 }

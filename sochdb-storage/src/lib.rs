@@ -106,6 +106,7 @@ pub mod adaptive_memtable; // Adaptive memtable sizing with memory pressure (Tas
 pub mod deferred_index; // Deferred sorted index with LSM-style compaction (Rec 2)
 pub mod dirty_tracking; // Batched dirty tracking with MPSC queue
 pub mod index_policy; // Per-table index policy
+pub mod queue_index; // Queue-optimized index structure (Task: Queue Index Policy)
 pub mod batch_wal; // Batched WAL with vectored I/O (Task 3)
 pub mod key_buffer; // Cache-line aligned key buffer (Task 2)
 pub mod lockfree_memtable; // Lock-free read path with hazard pointers (Task 4)
@@ -320,6 +321,11 @@ pub use dirty_tracking::{
 // Re-exports for per-table index policy
 pub use index_policy::{
     BalancedTableIndex, IndexPolicy, SortedRun, TableIndexConfig, TableIndexRegistry,
+};
+
+// Re-exports for queue-optimized index structure
+pub use queue_index::{
+    CompositeQueueKey, QueueIndex, QueueIndexConfig, QueueIndexStats, QueueTableRegistry,
 };
 
 // Re-exports for database kernel

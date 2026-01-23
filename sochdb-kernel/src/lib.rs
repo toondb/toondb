@@ -64,6 +64,7 @@
 //! - Capability-based access control
 //! - Hot-reload without restart
 
+pub mod atomic_claim; // Atomic claim protocol for queue operations (Task: Linearizable Dequeue)
 pub mod error;
 pub mod kernel_api;
 pub mod page;
@@ -86,6 +87,12 @@ pub use plugin::{
 };
 pub use transaction::{IsolationLevel, TransactionId, TransactionState, TxnManager};
 pub use wal::{LogSequenceNumber, WalManager, WalRecord, WalRecordType};
+
+// Atomic claim protocol for queue operations
+pub use atomic_claim::{
+    AtomicClaimManager, ClaimResult, ClaimStats, ClaimToken, CompareAndSwap, LeaseConfig,
+    LeaseManager,
+};
 
 /// Kernel version for API stability tracking
 pub const KERNEL_VERSION: &str = env!("CARGO_PKG_VERSION");

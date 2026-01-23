@@ -76,6 +76,7 @@ pub mod temporal_decay; // Task 4: Recency-biased scoring
 pub mod token_budget;
 pub mod soch_ql;
 pub mod soch_ql_executor;
+pub mod topk_executor; // Streaming Top-K for ORDER BY + LIMIT (Task: Fix ORDER BY Semantics)
 pub mod unified_fusion; // Task 7: Hybrid fusion that never post-filters
 
 pub use agent_context::{
@@ -117,6 +118,12 @@ pub use soch_ql::{
 pub use soch_ql_executor::{
     KeyRange, Predicate, PredicateCondition, QueryPlan, TokenReductionStats, SochQlExecutor,
     estimate_token_reduction, execute_sochql,
+};
+
+// Streaming Top-K for ORDER BY + LIMIT (Task: Fix ORDER BY Semantics)
+pub use topk_executor::{
+    ColumnRef, ExecutionStrategy as TopKExecutionStrategy, IndexAwareTopK, OrderByColumn, OrderByLimitExecutor,
+    OrderByLimitStats, OrderBySpec, SingleColumnTopK, SortDirection as TopKSortDirection, TopKHeap,
 };
 
 // Task 1: Streaming context generation
