@@ -754,16 +754,18 @@ unsafe fn l2_squared_threshold_avx2(a: &[f32], b: &[f32], threshold_squared: f32
         
         for chunk in chunk_group..end_chunk {
             let offset = chunk * 8;
-            let va = _mm256_loadu_ps(a_ptr.add(offset));
-            let vb = _mm256_loadu_ps(b_ptr.add(offset));
-            let diff = _mm256_sub_ps(va, vb);
-            // Use mul + add instead of fmadd to avoid target_feature requirement
-            let sq = _mm256_mul_ps(diff, diff);
-            sum = _mm256_add_ps(sum, sq);
+            unsafe {
+                let va = _mm256_loadu_ps(a_ptr.add(offset));
+                let vb = _mm256_loadu_ps(b_ptr.add(offset));
+                let diff = _mm256_sub_ps(va, vb);
+                // Use mul + add instead of fmadd to avoid target_feature requirement
+                let sq = _mm256_mul_ps(diff, diff);
+                sum = _mm256_add_ps(sum, sq);
+            }
         }
         
         // Check if we've exceeded threshold
-        let sum_scalar = {
+        let sum_scalar = unsafe {
             let sum_high = _mm256_extractf128_ps(sum, 1);
             let sum_low = _mm256_castps256_ps128(sum);
             let sum128 = _mm_add_ps(sum_low, sum_high);
@@ -783,13 +785,14 @@ unsafe fn l2_squared_threshold_avx2(a: &[f32], b: &[f32], threshold_squared: f32
     }
     
     // Horizontal sum for final result
-    let sum_high = _mm256_extractf128_ps(sum, 1);
-    let sum_low = _mm256_castps256_ps128(sum);
-    let sum128 = _mm_add_ps(sum_low, sum_high);
-    let sum64 = _mm_add_ps(sum128, _mm_movehl_ps(sum128, sum128));
-    let sum32 = _mm_add_ss(sum64, _mm_shuffle_ps(sum64, sum64, 1));
-    
-    let mut result = _mm_cvtss_f32(sum32);
+    let mut result = unsafe {
+        let sum_high = _mm256_extractf128_ps(sum, 1);
+        let sum_low = _mm256_castps256_ps128(sum);
+        let sum128 = _mm_add_ps(sum_low, sum_high);
+        let sum64 = _mm_add_ps(sum128, _mm_movehl_ps(sum128, sum128));
+        let sum32 = _mm_add_ss(sum64, _mm_shuffle_ps(sum64, sum64, 1));
+        _mm_cvtss_f32(sum32)
+    };
     
     // Handle remainder
     for i in (chunks * 8)..n {
