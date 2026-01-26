@@ -1,16 +1,19 @@
-// Copyright 2025 Sushanth (https://github.com/sushanthpy)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SochDB - LLM-Optimized Embedded Database
+// Copyright (C) 2026 Sushanth Reddy Vanagala (https://github.com/sushanthpy)
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
 //
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::database::{Database, TxnHandle};
 use std::ffi::CStr;
@@ -259,6 +262,50 @@ pub unsafe extern "C" fn sochdb_open(path: *const c_char) -> *mut DatabasePtr {
         }
         Err(_) => ptr::null_mut(),
     }
+}
+
+/// Open the database in concurrent mode (multi-reader, single-writer).
+/// 
+/// This mode allows multiple processes to access the database simultaneously:
+/// - Readers: Lock-free, concurrent access via MVCC snapshots
+/// - Writers: Single-writer coordination through atomic locks
+///
+/// Use this for web applications, hot reloading, or any multi-process scenario.
+///
+/// # Safety
+/// The path must be a valid C string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sochdb_open_concurrent(path: *const c_char) -> *mut DatabasePtr {
+    if path.is_null() {
+        return ptr::null_mut();
+    }
+
+    let c_str = unsafe { CStr::from_ptr(path) };
+    let path_str = match c_str.to_str() {
+        Ok(s) => s,
+        Err(_) => return ptr::null_mut(),
+    };
+
+    match Database::open_concurrent(path_str) {
+        Ok(db) => {
+            let ptr = Box::new(DatabasePtr(db));
+            Box::into_raw(ptr)
+        }
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+/// Check if database is in concurrent mode.
+/// Returns 1 if concurrent mode, 0 otherwise.
+/// # Safety
+/// The ptr must be a valid pointer returned by sochdb_open or sochdb_open_concurrent.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sochdb_is_concurrent(ptr: *mut DatabasePtr) -> c_int {
+    if ptr.is_null() {
+        return 0;
+    }
+    let db = unsafe { &*ptr };
+    if db.0.is_concurrent() { 1 } else { 0 }
 }
 
 /// Close the database and free the pointer.

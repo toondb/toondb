@@ -19,10 +19,10 @@ exclude = ["sochdb-python"]
 resolver = "2"
 
 [workspace.package]
-version = "0.4.3"
+version = "0.4.4"
 edition = "2024"
 authors = ["Sushanth <sushanth@sochdb.dev>"]
-license = "Apache-2.0"
+license = "AGPL-3.0-or-later"
 repository = "https://github.com/sochdb/sochdb"
 homepage = "https://sochdb.dev"
 documentation = "https://sochdb.dev"

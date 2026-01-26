@@ -1,6 +1,6 @@
 // Copyright 2025 Sushanth (https://github.com/sushanthpy)
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
+// This program is free software: you can redistribute it and/or modify
 // you may not use this file except in compliance with the License.
 
 //! Trace Service gRPC Implementation

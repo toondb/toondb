@@ -1476,9 +1476,21 @@ cargo criterion --bench vector_search
 
 ---
 
-## License
+## 📄 License
 
-Apache-2.0
+**SochDB (sochdb)**  
+Copyright (C) 2026 Sushanth Reddy Vanagala
+
+This project is licensed under the **GNU Affero General Public License v3.0 or later** (AGPL-3.0-or-later).  
+See the [LICENSE](LICENSE) file for the full text.
+
+**What this means:**
+- ✅ You can use, modify, and distribute SochDB freely
+- ✅ You must share your modifications under AGPL-3.0
+- ✅ If you run SochDB as a network service, you must share your source code
+- 📖 Full license text: https://www.gnu.org/licenses/agpl-3.0.html
+
+For commercial licensing options or questions, contact: sushanth@sochdb.dev
 
 ---
 

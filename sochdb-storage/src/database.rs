@@ -1,16 +1,19 @@
-// Copyright 2025 Sushanth (https://github.com/sushanthpy)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SochDB - LLM-Optimized Embedded Database
+// Copyright (C) 2026 Sushanth Reddy Vanagala (https://github.com/sushanthpy)
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
 //
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 //! SochDB Database Kernel
 //!
@@ -766,11 +769,26 @@ pub struct VectorSearchResult {
 /// - Writers coordinate through WAL and group commit
 /// - All state is behind Arc/RwLock for shared access
 ///
+/// # Concurrency Modes
+///
+/// ## Standard Mode (Single Process)
+/// - Uses exclusive file lock (`flock(LOCK_EX)`)
+/// - Best for: Scripts, notebooks, CLI tools
+/// - Open with: `Database::open(path)`
+///
+/// ## Concurrent Mode (Multi-Process/Web Apps)
+/// - Uses lock-free MVCC for reads, single-writer coordination for writes
+/// - Best for: Web servers, Flask/FastAPI apps, hot reloading
+/// - Open with: `Database::open_concurrent(path)`
+///
 /// # Example
 ///
 /// ```ignore
-/// // Open a database (SQLite-style)
+/// // Standard mode (single process)
 /// let db = Database::open("./my_data")?;
+///
+/// // Concurrent mode (multi-reader, single-writer)
+/// let db = Database::open_concurrent("./my_data")?;
 ///
 /// // Begin a transaction
 /// let txn = db.begin_transaction()?;
@@ -787,6 +805,8 @@ pub struct Database {
     path: PathBuf,
     /// Durable storage layer (WAL + MVCC + memtable)
     storage: Arc<DurableStorage>,
+    /// Concurrent MVCC manager (for concurrent mode)
+    concurrent_mvcc: Option<Arc<crate::mvcc_concurrent::ConcurrentMvcc>>,
     /// Schema catalog
     catalog: Arc<RwLock<Catalog>>,
     /// Registered table schemas (name -> schema) - lock-free for reads
@@ -801,6 +821,8 @@ pub struct Database {
     stats: DatabaseStats,
     /// Shutdown flag
     shutdown: AtomicU64,
+    /// Whether this database is in concurrent mode
+    is_concurrent: bool,
 }
 
 /// Database statistics
@@ -874,6 +896,7 @@ impl Database {
         let db = Arc::new(Self {
             path: path.clone(),
             storage,
+            concurrent_mvcc: None,
             catalog: Arc::new(RwLock::new(Catalog::new("sochdb"))),
             tables: DashMap::new(),
             packed_schemas: DashMap::new(),
@@ -881,6 +904,7 @@ impl Database {
             config,
             stats: DatabaseStats::new(),
             shutdown: AtomicU64::new(0),
+            is_concurrent: false,
         });
 
         db.recover()?;
@@ -907,6 +931,7 @@ impl Database {
         let db = Arc::new(Self {
             path: path.clone(),
             storage,
+            concurrent_mvcc: None,
             catalog: Arc::new(RwLock::new(Catalog::new("sochdb"))),
             tables: DashMap::new(),
             packed_schemas: DashMap::new(),
@@ -914,12 +939,103 @@ impl Database {
             config,
             stats: DatabaseStats::new(),
             shutdown: AtomicU64::new(0),
+            is_concurrent: false,
         });
 
         // Perform crash recovery if needed
         db.recover()?;
 
         Ok(db)
+    }
+
+    /// Open database in concurrent mode (multi-reader, single-writer)
+    ///
+    /// This mode allows multiple processes to access the database simultaneously:
+    /// - **Readers**: Lock-free, concurrent access via MVCC snapshots
+    /// - **Writers**: Single-writer coordination through atomic locks
+    ///
+    /// # Use Cases
+    ///
+    /// - Web applications (Flask, FastAPI, Django)
+    /// - Hot reloading development servers
+    /// - Multi-process worker pools
+    /// - Any scenario with concurrent read access
+    ///
+    /// # Performance
+    ///
+    /// - Read latency: ~100ns (lock-free atomic operations)
+    /// - Write latency: ~60μs amortized (with group commit)
+    /// - Concurrent readers: Up to 1024 (configurable)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Multiple processes can open the same database
+    /// let db = Database::open_concurrent("./my_data")?;
+    ///
+    /// // Reads are lock-free
+    /// let value = db.get(b"key")?;
+    ///
+    /// // Writes coordinate automatically
+    /// let txn = db.begin_transaction()?;
+    /// db.put(txn, b"key", b"value")?;
+    /// db.commit(txn)?;
+    /// ```
+    pub fn open_concurrent<P: AsRef<Path>>(path: P) -> Result<Arc<Self>> {
+        Self::open_concurrent_with_config(path, DatabaseConfig::default())
+    }
+
+    /// Open database in concurrent mode with custom configuration
+    pub fn open_concurrent_with_config<P: AsRef<Path>>(
+        path: P,
+        config: DatabaseConfig,
+    ) -> Result<Arc<Self>> {
+        use crate::mvcc_concurrent::ConcurrentMvcc;
+
+        let path = path.as_ref().to_path_buf();
+        std::fs::create_dir_all(&path)?;
+
+        // Open concurrent MVCC manager (this uses shared memory, not exclusive lock)
+        let concurrent_mvcc = Arc::new(ConcurrentMvcc::open(&path)?);
+
+        // Open storage WITHOUT exclusive lock (concurrent MVCC handles coordination)
+        // We use a special internal method that skips the file lock
+        let storage = Arc::new(DurableStorage::open_for_concurrent(&path, config.default_index_policy)?);
+
+        // Create index registry with default policy from config
+        let index_registry = Arc::new(TableIndexRegistry::with_default_policy(
+            config.default_index_policy,
+        ));
+
+        let db = Arc::new(Self {
+            path: path.clone(),
+            storage,
+            concurrent_mvcc: Some(concurrent_mvcc),
+            catalog: Arc::new(RwLock::new(Catalog::new("sochdb"))),
+            tables: DashMap::new(),
+            packed_schemas: DashMap::new(),
+            index_registry,
+            config,
+            stats: DatabaseStats::new(),
+            shutdown: AtomicU64::new(0),
+            is_concurrent: true,
+        });
+
+        // Perform crash recovery if needed
+        db.recover()?;
+
+        // Clean up any stale readers from crashed processes
+        if let Some(ref mvcc) = db.concurrent_mvcc {
+            mvcc.cleanup_stale_readers();
+        }
+
+        Ok(db)
+    }
+
+    /// Check if database is in concurrent mode
+    #[inline]
+    pub fn is_concurrent(&self) -> bool {
+        self.is_concurrent
     }
 
     /// Perform crash recovery

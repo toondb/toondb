@@ -1,0 +1,41 @@
+SochDB (sochdb)
+Copyright (C) 2026 Sushanth Reddy Vanagala
+
+This project is licensed under the GNU Affero General Public License v3.0 or later.
+See the LICENSE file for the full license text.
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+
+For commercial licensing inquiries, please contact: sushanth@sochdb.dev
+
+================================================================================
+
+This software includes components from the following projects:
+
+- HNSW algorithm: Malkov & Yashunin, "Efficient and robust approximate nearest 
+  neighbor search using Hierarchical Navigable Small World graphs", IEEE TPAMI 2018
+
+- MVCC implementation inspired by PostgreSQL and SQLite
+
+- Columnar storage design influenced by Apache Arrow
+
+- Vamana (DiskANN): Subramanya et al., "DiskANN: Fast Accurate Billion-point 
+  Nearest Neighbor Search on a Single Node", NeurIPS 2019
+
+- PGM-Index: Ferragina & Vinciguerra, "The PGM-index: a fully-dynamic compressed 
+  learned index with provable worst-case bounds", VLDB 2020
+
+- ARIES: Mohan et al., "ARIES: A Transaction Recovery Method Supporting 
+  Fine-Granularity Locking and Partial Rollbacks Using Write-Ahead Logging", 
+  ACM TODS 1992
+
+- SSI: Cahill et al., "Serializable Isolation for Snapshot Databases", 
+  ACM SIGMOD 2008
+
+- LSM-Tree: O'Neil et al., "The Log-Structured Merge-Tree (LSM-Tree)", 
+  Acta Informatica 1996
+
+- TOON format: https://github.com/toon-format/toon
+
+All dependencies are used in accordance with their respective licenses.
+See Cargo.toml files for complete dependency information.

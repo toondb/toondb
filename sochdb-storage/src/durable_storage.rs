@@ -1,16 +1,19 @@
-// Copyright 2025 Sushanth (https://github.com/sushanthpy)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SochDB - LLM-Optimized Embedded Database
+// Copyright (C) 2026 Sushanth Reddy Vanagala (https://github.com/sushanthpy)
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
 //
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 //! Durable Storage Layer
 //!
@@ -2556,6 +2559,38 @@ impl DurableStorage {
         } else {
             Self::open_with_full_config(path, enable_ordered_index, memtable_type)
         }
+    }
+
+    /// Open storage for concurrent mode (multi-reader, single-writer)
+    ///
+    /// This method opens the storage WITHOUT acquiring the exclusive file lock.
+    /// Coordination is handled by the concurrent MVCC layer instead.
+    ///
+    /// # Safety
+    ///
+    /// This must ONLY be called from `Database::open_concurrent()` which
+    /// manages the concurrent MVCC coordination. Direct use will cause
+    /// data corruption.
+    pub fn open_for_concurrent<P: AsRef<Path>>(
+        path: P,
+        policy: crate::index_policy::IndexPolicy,
+    ) -> Result<Self> {
+        use crate::index_policy::IndexPolicy;
+        
+        let (enable_ordered_index, memtable_type) = match policy {
+            IndexPolicy::WriteOptimized | IndexPolicy::AppendOnly => {
+                (false, MemTableType::Arena)
+            }
+            IndexPolicy::Balanced => {
+                (true, MemTableType::Standard)
+            }
+            IndexPolicy::ScanOptimized => {
+                (true, MemTableType::Standard)
+            }
+        };
+
+        // Open WITHOUT exclusive file lock (concurrent MVCC handles coordination)
+        Self::open_with_full_config_internal(path, enable_ordered_index, memtable_type, false)
     }
 
     /// Get the memtable type being used
